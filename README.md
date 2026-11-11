@@ -30,9 +30,9 @@ Dropped tasks go to the done pile marked "Dropped" and can be restored. You can 
 - Type in the quick-add field and press Enter. The picker next to it chooses the quadrant; while typing, `Tab` cycles through the quadrants and `Alt`+`1`–`4` picks one directly. Focus stays in the field for the next task.
 - Or click **+** in a quadrant and type; Enter adds the note and keeps the composer open for the next one.
 - Drag notes to reorder them or to move them to another quadrant. Drop a note on a workspace tab to move it there.
-- Click a note for details: title, notes, due date, quadrant, workspace, done.
+- Click a note for details: title, notes, due date, quadrant, workspace, done. The due date opens a picker with quick options (Today, Tomorrow, Next Monday, In a week, No date) and a calendar; arrow keys move through the days.
 - Hover a note (or focus it with the keyboard) and tick the circle to complete it. It flies into the **Done** pile.
-- Overdue notes show a red "Overdue" badge, notes due today a tinted "Today" badge.
+- Date badges: overdue is a soft red pill, today a tinted pill, tomorrow and the week after it show the weekday ("Thu 19 Nov"), later dates show just the date.
 - Deleting, completing, moving and clearing all offer **Undo** for a few seconds.
 
 **Done pile**
