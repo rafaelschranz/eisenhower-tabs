@@ -51,31 +51,18 @@
   --today-tint: 20%;       /* strength of the Today pill */
   --check: #1f8a4c;
 
-  /* Note sizes per density. Do first and Schedule are normal, Delegate is
-     small, Eliminate is compact; any quadrant that overflows steps down. */
---note-gap: clamp(10px, 0.83vw, 18px);
-  /* Sizes grow with the window (clamp) so a 2560px board is not a sea of small notes.
-     Each value: floor, slope through its 1440px size, ceiling reached around 2560px. */
+  /* One note size for every quadrant. The values grow with the window (clamp):
+     floor, slope through the 1440px size, ceiling reached around 2560px. */
+  --note-gap: clamp(10px, 0.83vw, 18px);
   --note-w: clamp(164px, 82px + 6.5vw, 250px);
   --note-min-h: clamp(92px, 44px + 3.6vw, 138px);
   --note-fs: clamp(14px, 11.9px + 0.18vw, 16.5px);
   --note-pad: clamp(11px, 0.9vw, 17px) clamp(12px, 0.97vw, 19px) clamp(10px, 0.76vw, 15px);
   --note-badge: clamp(11px, 9.9px + 0.11vw, 12.75px);
-  --note-w-small: clamp(144px, 70px + 5.7vw, 216px);
-  --note-min-h-small: clamp(80px, 40px + 3.05vw, 118px);
-  --note-fs-small: clamp(13px, 11.2px + 0.16vw, 15.25px);
-  --note-pad-small: clamp(10px, 0.76vw, 15px) clamp(11px, 0.83vw, 17px) clamp(9px, 0.7vw, 14px);
-  --note-badge-small: clamp(10.5px, 9.6px + 0.1vw, 12.25px);
-  --note-w-compact: clamp(124px, 62px + 4.6vw, 180px);
-  --note-min-h-compact: clamp(62px, 34px + 2.2vw, 92px);
-  --note-fs-compact: clamp(12.5px, 10.6px + 0.134vw, 14px);
-  --note-pad-compact: clamp(8px, 0.62vw, 13px) clamp(9px, 0.7vw, 14px) clamp(7px, 0.55vw, 11px);
-  --note-badge-compact: clamp(10.5px, 9.1px + 0.1vw, 11.75px);
   --zone-pad: clamp(14px, 1.25vw, 28px);    /* inner padding of a quadrant */
   --board-gap: clamp(12px, 0.97vw, 22px);
   --chrome-footer-space: 36px;              /* kept clear for Chrome's own new tab footer */
   --note-lines: 4;          /* title lines before the ellipsis */
-  --n-badge: 11.5px;        /* badge size outside a quadrant (dialogs) */
 
   /* Radii */
   --r-note: 5px;
@@ -444,21 +431,32 @@ kbd {
 .q-add:hover { background: color-mix(in srgb, var(--q-accent) 22%, transparent); transform: scale(1.08) rotate(90deg); }
 .q-add:active { transform: scale(0.94); }
 
-/* Fixed-width notes; leftover space stays empty. data-density is set from JS. */
+/* Fixed-width notes, the same in every quadrant; leftover space stays empty. */
 .note-list {
-  --n-w: var(--note-w); --n-min-h: var(--note-min-h); --n-fs: var(--note-fs); --n-pad: var(--note-pad); --n-badge: var(--note-badge);
   position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
-  display: grid; grid-template-columns: repeat(auto-fill, min(var(--n-w), 100%));
-  grid-auto-rows: auto; align-content: start; gap: var(--note-gap); /* rows stretch: notes in a row share one height */
+  display: grid; grid-template-columns: repeat(auto-fill, min(var(--note-w), 100%));
+  /* max-content rows: as tall as their tallest note even when the quadrant overflows; notes in a row share that height */
+  grid-auto-rows: max-content; align-content: start; gap: var(--note-gap);
   padding: 8px var(--zone-pad) var(--zone-pad);
   scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--q-accent) 28%, transparent) transparent;
 }
-.note-list[data-density="small"] {
-  --n-w: var(--note-w-small); --n-min-h: var(--note-min-h-small); --n-fs: var(--note-fs-small); --n-pad: var(--note-pad-small); --n-badge: var(--note-badge-small);
+/* "+N more" chip over the bottom fade while notes are hidden below */
+.q-more {
+  position: absolute; left: 50%; bottom: 10px; z-index: 3; transform: translateX(-50%);
+  height: 26px; padding: 0 11px; border: 0; border-radius: var(--r-pill);
+  background: var(--q-accent); color: var(--q-zone); box-shadow: var(--sh-ctl);
+  font-size: 12px; font-weight: 700; white-space: nowrap; animation: fade var(--t-move) var(--ease);
 }
-.note-list[data-density="compact"] {
-  --n-w: var(--note-w-compact); --n-min-h: var(--note-min-h-compact); --n-fs: var(--note-fs-compact); --n-pad: var(--note-pad-compact); --n-badge: var(--note-badge-compact);
+.q-more:hover { transform: translateX(-50%) scale(1.05); }
+/* Shown while a quadrant keeps the order it was dragged into */
+.q-sort {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  height: 24px; padding: 0 8px; border-radius: var(--r-pill);
+  border: 1px dashed color-mix(in srgb, var(--q-accent) 55%, transparent); background: none; color: var(--q-accent);
+  font-size: 11.5px; font-weight: 650; white-space: nowrap; animation: fade var(--t-move) var(--ease);
 }
+.q-sort:hover { background: color-mix(in srgb, var(--q-accent) 14%, transparent); border-style: solid; }
+.q-sort svg { width: 10px; height: 10px; }
 
 .empty {
   grid-column: 1 / -1; margin: 0; padding: 22px 8px;
@@ -469,12 +467,12 @@ kbd {
 /* ==========================================================================
    Sticky notes
    ========================================================================== */
-.note, .composer, .note-placeholder { min-height: var(--n-min-h); }
+.note, .composer, .note-placeholder { min-height: var(--note-min-h); }
 
 .note, .composer {
   position: relative;
   display: flex; flex-direction: column;
-  padding: var(--n-pad);
+  padding: var(--note-pad);
   border-radius: var(--r-note);
   background: var(--q); color: var(--note-ink);
   box-shadow: var(--sh-note);
@@ -513,7 +511,8 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .note-placeholder.off { display: none; }
 
 .note-title {
-  font-size: var(--n-fs); font-weight: var(--fw-note); line-height: 1.33; overflow-wrap: anywhere;
+  flex: none; /* never squeezed: a crowded quadrant scrolls instead of cutting titles */
+  font-size: var(--note-fs); font-weight: var(--fw-note); line-height: 1.33; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--note-lines); overflow: hidden;
 }
 .note-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 8px; padding-right: 24px; }
@@ -522,7 +521,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
    > the coming days (light tint, with weekday) > later (outline only). */
 .due {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--r-pill);
-  font-size: var(--n-badge); font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--q-ink);
+  font-size: 11.5px; font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--q-ink);
 }
 .due-later { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-ink) 26%, transparent); font-weight: 500; }
 .due-soon { background: color-mix(in srgb, var(--q-ink) 9%, transparent); }
@@ -533,8 +532,9 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .when-hint {
   padding: 1px 8px; border-radius: var(--r-pill); cursor: pointer;
   border: 1.5px dashed color-mix(in srgb, var(--q-ink) 45%, transparent); background: none;
-  font-size: var(--n-badge); font-weight: 650; line-height: 1.45; color: var(--q-ink);
+  font-size: var(--note-badge); font-weight: 650; line-height: 1.45; color: var(--q-ink);
 }
+.note .due { font-size: var(--note-badge); }
 .when-hint:hover, .when-hint:focus-visible { background: color-mix(in srgb, var(--q-ink) 12%, transparent); border-style: solid; }
 .when-hint:focus-visible { outline: 2px solid var(--q-ink); outline-offset: 2px; }
 /* Review: notes that have waited too long fade a little */
@@ -563,7 +563,7 @@ body:not(.is-dragging) .note:hover .note-check, .note:focus-visible .note-check,
 .composer-input {
   flex: 1; min-height: 0; resize: none; padding: 0;
   border: 0; outline: 0; background: none; color: var(--note-ink);
-  font-size: var(--n-fs); font-weight: var(--fw-note); line-height: 1.33;
+  font-size: var(--note-fs); font-weight: var(--fw-note); line-height: 1.33;
 }
 .composer-input::placeholder { color: var(--note-ink-soft); font-weight: 400; }
 
@@ -820,6 +820,149 @@ dialog.mode h2 { font-family: var(--font-display); font-size: 22px; font-weight:
 .pos-row { display: flex; gap: 8px; }
 
 /* ==========================================================================
+   Weather in the greeting
+   ========================================================================== */
+.wx { position: relative; display: inline-flex; align-items: baseline; gap: 5px; border-radius: 8px; white-space: nowrap; }
+.wx-temp { font-family: var(--font-body); font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.wx.live { cursor: default; }
+.wx-tip {
+  display: none; position: absolute; left: 0; top: 100%; z-index: 45; padding-top: 6px; /* the padding bridges the gap so the link stays reachable */
+  font-family: var(--font-body); font-size: 12.5px; font-weight: 400; letter-spacing: 0; line-height: 1.45; white-space: nowrap;
+}
+.wx-tip::before { content: ""; position: absolute; inset: 6px 0 0; z-index: -1; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--sh-pop); }
+.wx-tip > * { display: block; padding: 0 12px; }
+.wx-tip > :first-child { padding-top: 9px; font-weight: 700; }
+.wx-tip > :last-child { padding-bottom: 9px; margin-top: 4px; color: var(--ink-soft); }
+.wx-tip span { color: var(--ink-soft); }
+.wx-tip a:hover { color: var(--ink); }
+.wx.live:hover .wx-tip, .wx.live:focus-within .wx-tip { display: block; animation: fade var(--t-fast) var(--ease); }
+
+/* ==========================================================================
+   Settings
+   ========================================================================== */
+.set-section { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.set-section h3 { margin: 0; font-size: 14px; font-weight: 750; }
+.set-section .btn { align-self: flex-start; }
+.set-note { font-size: 12.5px; color: var(--ink-soft); }
+.set-note:empty { display: none; }
+.switch-row { display: flex; align-items: center; gap: 14px; cursor: pointer; font-weight: 600; }
+.switch-row > span:first-child { flex: 1; min-width: 0; }
+.switch-row small { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 400; color: var(--ink-soft); }
+.switch-row input { position: absolute; opacity: 0; pointer-events: none; }
+.switch { position: relative; flex: none; width: 40px; height: 24px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ink) 22%, transparent); }
+.switch::after {
+  content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: var(--sh-ctl);
+  transition: transform var(--t-move) var(--ease);
+}
+.switch-row input:checked + .switch { background: var(--check); }
+.switch-row input:checked + .switch::after { transform: translateX(16px); }
+.switch-row input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wx-current { font-weight: 600; }
+.wx-results { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 1px; }
+.wx-result {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none;
+  font-size: 13.5px; font-weight: 600; text-align: left;
+}
+.wx-result .grow { flex: none; }
+.wx-result .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 400; color: var(--ink-soft); }
+.wx-result:hover { background: var(--hover); }
+
+/* ==========================================================================
+   Insights (full-screen view)
+   ========================================================================== */
+dialog.insights {
+  width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow-y: auto;
+  color: var(--ink); background-color: var(--canvas);
+  background-image: radial-gradient(var(--dot) 1.2px, transparent 1.3px); background-size: 22px 22px;
+}
+dialog.insights[open] { animation: fade var(--t-move) var(--ease); }
+.ins-wrap { display: flex; flex-direction: column; gap: 14px; max-width: 1180px; margin: 0 auto; padding: 18px 24px calc(28px + var(--chrome-footer-space)); }
+.ins-head { display: flex; align-items: center; gap: 14px; }
+.ins-head h2 { flex: 1; margin: 0; font-family: var(--font-display); font-size: 25px; font-weight: var(--fw-greeting); letter-spacing: -0.015em; }
+.ins-filters { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.chip {
+  height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface);
+  font-size: 13px; font-weight: 600; color: var(--ink-soft); white-space: nowrap;
+}
+.chip:hover { color: var(--ink); border-color: color-mix(in srgb, var(--ink) 28%, transparent); }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: transparent; color: var(--canvas); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--hover); }
+.seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 8px; background: none; font-size: 13px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"], .seg button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--sh-ctl); }
+
+.ins-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 14px; }
+.ins-body > .wide, .ins-stats { grid-column: 1 / -1; }
+.ins-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.ins-card {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 18px;
+  border-radius: var(--r-zone); background: var(--surface); border: 1px solid var(--line); box-shadow: var(--sh-zone);
+}
+.ins-card h3 { margin: 0; font-family: var(--font-display); font-size: 16.5px; font-weight: var(--fw-title); letter-spacing: -0.01em; }
+.ins-sub { margin-top: -6px; font-size: 13px; color: var(--ink-soft); }
+.ins-empty { align-items: center; padding: 34px 18px; text-align: center; color: var(--ink-soft); font-size: 14px; }
+.stat { gap: 2px; }
+.stat-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); }
+.stat-value { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-sub { font-size: 12.5px; color: var(--ink-soft); }
+
+/* Chart parts. Text wears the ink tokens; only marks wear colour. */
+.viz-label { font-size: 10.5px; fill: var(--ink-soft); }
+.viz-value { font-size: 12px; font-weight: 700; fill: var(--ink); }
+.viz-axis { stroke: var(--line); stroke-width: 1; }
+.heat-scroll { overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.heatmap { display: block; width: auto; height: auto; flex: none; } /* sized by its width and height attributes */
+.hm-cell { cursor: pointer; outline: 0; stroke: transparent; stroke-width: 2; }
+.hm-l0 { fill: color-mix(in srgb, var(--ink) 8%, transparent); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.hm-l1 { fill: color-mix(in srgb, var(--accent) 34%, var(--surface)); background: color-mix(in srgb, var(--accent) 34%, var(--surface)); }
+.hm-l2 { fill: color-mix(in srgb, var(--accent) 52%, var(--surface)); background: color-mix(in srgb, var(--accent) 52%, var(--surface)); }
+.hm-l3 { fill: color-mix(in srgb, var(--accent) 76%, var(--surface)); background: color-mix(in srgb, var(--accent) 76%, var(--surface)); }
+.hm-l4 { fill: var(--accent); background: var(--accent); }
+.hm-cell:hover, .hm-cell:focus-visible { stroke: color-mix(in srgb, var(--ink) 55%, transparent); }
+.hm-cell.selected { stroke: var(--ink); }
+.heat-legend { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink-soft); }
+.heat-legend i { width: 12px; height: 12px; border-radius: 3px; }
+.heat-legend span:first-child { margin-right: 3px; }
+.heat-legend span:last-child { margin-left: 3px; }
+.heat-row { display: flex; flex-wrap: wrap; gap: 14px 32px; } /* the day's tasks sit beside a short calendar, below a long one */
+.heat-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; max-width: 100%; }
+.day-panel { flex: 1 1 300px; min-width: 0; max-height: 300px; overflow-y: auto; padding: 2px 4px 2px 0; scrollbar-width: thin; }
+.day-panel .ins-sub { margin: 0; }
+
+.bars { display: block; width: 100%; height: auto; max-height: 230px; }
+.bar { fill: color-mix(in srgb, var(--accent) 46%, var(--surface)); }
+.bar-g.peak .bar { fill: var(--accent); }
+.bar-hit { fill: transparent; }
+.bar-g:hover .bar { fill: color-mix(in srgb, var(--accent) 78%, var(--ink)); }
+
+.share-wrap { display: flex; flex-direction: column; gap: 12px; }
+.share { display: block; width: 100%; height: 24px; }
+.share-seg { fill: var(--q); stroke: var(--surface); stroke-width: 2; }
+.share-seg:hover { fill: color-mix(in srgb, var(--q) 82%, var(--q-ink)); }
+.share-legend { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 18px; }
+.share-legend li { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.share-legend .grow { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.share-legend .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.share-legend .pct { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.q-dot { flex: none; width: 11px; height: 11px; border-radius: 3.5px; background: var(--q); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-ink) 35%, transparent); }
+
+.hist-day + .hist-day { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hist-day h4 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; font-size: 13.5px; font-weight: 700; }
+.hist-count { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.hist-list { margin: 0; padding: 0; list-style: none; }
+.hist-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13.5px; }
+.hist-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.hist-time { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+#ins-more { align-self: center; margin-top: 8px; }
+
+.viz-tip {
+  position: fixed; z-index: 10; padding: 5px 9px; border-radius: 8px; pointer-events: none;
+  background: #24242b; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: var(--sh-pop);
+}
+:root[data-theme="dark"] .viz-tip { background: #f1f1f5; color: #1c1c21; }
+
+/* ==========================================================================
    Toast
    ========================================================================== */
 .toast {
@@ -873,4 +1016,9 @@ dialog.mode h2 { font-family: var(--font-display); font-size: 22px; font-weight:
   .field-row { grid-template-columns: 1fr; }
   .q-choice { grid-template-columns: 1fr 1fr; }
   .saved-hint { display: none; }
+  #insights-open > span { display: none; }
+}
+@media (max-width: 900px) {
+  .ins-body { grid-template-columns: minmax(0, 1fr); }
+  .ins-stats, .share-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

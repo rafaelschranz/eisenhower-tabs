@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Eisenhower Tabs",
-  "version": "1.0.0",
-  "description": "A personal priority whiteboard on every new tab, laid out as an Eisenhower matrix. Fully local and offline.",
+  "version": "1.1.0",
+  "description": "A personal priority whiteboard on every new tab, laid out as an Eisenhower matrix. Your tasks stay on this device.",
   "permissions": ["storage"],
+  "optional_host_permissions": [
+    "https://geocoding-api.open-meteo.com/*",
+    "https://api.open-meteo.com/*"
+  ],
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
