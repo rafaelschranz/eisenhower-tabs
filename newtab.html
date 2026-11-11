@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>New Tab</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="js/theme.js"></script>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="icons/icon32.png">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="hello">
+    <h1 id="greeting">Hello</h1>
+    <p class="subline"><span id="today"></span><span class="sep" aria-hidden="true">·</span><span id="summary"></span></p>
+  </div>
+
+  <div class="actions">
+    <button id="done-toggle" class="btn" type="button" aria-expanded="false" aria-controls="drawer" title="Done pile (D)">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 8.3l2 2 3.6-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Done</span>
+      <span id="done-count" class="pill">0</span>
+    </button>
+    <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+      <svg class="i-moon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <svg class="i-sun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
+    <div class="menu-wrap">
+      <button id="menu-toggle" class="icon-btn" type="button" aria-label="Backup and shortcuts" title="Backup and shortcuts" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.2" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.8" cy="8" r="1.3" fill="currentColor"/></svg>
+      </button>
+      <div id="menu" class="menu" hidden>
+        <p class="menu-label">Backup</p>
+        <button id="export-btn" class="menu-item" type="button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.8 7.2L8 10.4l3.2-3.2M2.8 13.2h10.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Export backup
+        </button>
+        <button id="import-btn" class="menu-item" type="button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10.4v-8M4.8 5.2L8 2l3.2 3.2M2.8 13.2h10.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Import backup…
+        </button>
+        <p class="menu-label">Shortcuts</p>
+        <dl class="shortcuts">
+          <div><dt><kbd>N</kbd></dt><dd>New task</dd></div>
+          <div><dt><kbd>D</kbd></dt><dd>Done pile</dd></div>
+          <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Switch workspace</dd></div>
+          <div><dt><kbd>Ctrl</kbd> <kbd>Z</kbd></dt><dd>Undo</dd></div>
+          <div><dt><kbd>Esc</kbd></dt><dd>Close</dd></div>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <nav class="ws-bar" aria-label="Workspaces">
+    <div id="ws-tabs" class="ws-tabs" role="tablist"></div>
+    <button id="ws-add" class="ws-add" type="button" aria-label="New workspace" title="New workspace">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </nav>
+
+  <form id="quick-add" class="quick-add" autocomplete="off">
+    <svg class="qa-plus" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    <input id="quick-input" type="text" maxlength="300" placeholder="Add a task and press Enter" aria-label="Add a task">
+    <span id="q-pick-label" class="q-pick-label" aria-hidden="true">Do first</span>
+    <div class="q-pick" role="radiogroup" aria-label="Add to quadrant">
+      <label data-q="do" title="Do first"><input type="radio" name="quick-q" value="do" checked><span class="sr-only">Do first</span></label>
+      <label data-q="schedule" title="Schedule"><input type="radio" name="quick-q" value="schedule"><span class="sr-only">Schedule</span></label>
+      <label data-q="delegate" title="Delegate"><input type="radio" name="quick-q" value="delegate"><span class="sr-only">Delegate</span></label>
+      <label data-q="eliminate" title="Eliminate"><input type="radio" name="quick-q" value="eliminate"><span class="sr-only">Eliminate</span></label>
+    </div>
+  </form>
+</header>
+
+<main id="board" class="board">
+  <div class="axis axis-x ax-urgent" aria-hidden="true">Urgent</div>
+  <div class="axis axis-x ax-not-urgent" aria-hidden="true">Not urgent</div>
+  <div class="axis axis-y ax-important" aria-hidden="true">Important</div>
+  <div class="axis axis-y ax-not-important" aria-hidden="true">Not important</div>
+
+  <section class="quadrant" data-q="do" aria-labelledby="qt-do">
+    <header class="q-head">
+      <h2 class="q-title" id="qt-do">Do first</h2>
+      <span class="q-count" title="Open tasks">0</span>
+      <span class="q-hint">Urgent &amp; important</span>
+      <button class="q-add" type="button" aria-label="Add task to Do first" title="Add task">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="note-list"></div>
+  </section>
+
+  <section class="quadrant" data-q="schedule" aria-labelledby="qt-schedule">
+    <header class="q-head">
+      <h2 class="q-title" id="qt-schedule">Schedule</h2>
+      <span class="q-count" title="Open tasks">0</span>
+      <span class="q-hint">Important, not urgent</span>
+      <button class="q-add" type="button" aria-label="Add task to Schedule" title="Add task">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="note-list"></div>
+  </section>
+
+  <section class="quadrant" data-q="delegate" aria-labelledby="qt-delegate">
+    <header class="q-head">
+      <h2 class="q-title" id="qt-delegate">Delegate</h2>
+      <span class="q-count" title="Open tasks">0</span>
+      <span class="q-hint">Urgent, not important</span>
+      <button class="q-add" type="button" aria-label="Add task to Delegate" title="Add task">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="note-list"></div>
+  </section>
+
+  <section class="quadrant" data-q="eliminate" aria-labelledby="qt-eliminate">
+    <header class="q-head">
+      <h2 class="q-title" id="qt-eliminate">Eliminate</h2>
+      <span class="q-count" title="Open tasks">0</span>
+      <span class="q-hint">Neither urgent nor important</span>
+      <button class="q-add" type="button" aria-label="Add task to Eliminate" title="Add task">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="note-list"></div>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" aria-label="Done pile" inert>
+  <header class="drawer-head">
+    <div>
+      <h2>Done pile</h2>
+      <p id="drawer-sub" class="drawer-sub"></p>
+    </div>
+    <button id="done-clear" class="btn small" type="button">Clear pile</button>
+    <button id="drawer-close" class="icon-btn" type="button" aria-label="Close done pile">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+  <ul id="done-list" class="done-list"></ul>
+</aside>
+
+<dialog id="detail" class="sheet detail" aria-label="Task details">
+  <form method="dialog" id="detail-form">
+    <div class="detail-top">
+      <label class="done-check">
+        <input type="checkbox" id="d-done">
+        <span class="box" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span>Done</span>
+      </label>
+      <span id="d-meta" class="d-meta"></span>
+      <button class="icon-btn" type="submit" aria-label="Close">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <textarea id="d-title" class="d-title" rows="1" maxlength="300" placeholder="Task title" aria-label="Title"></textarea>
+
+    <label class="field">
+      <span class="field-label">Notes</span>
+      <textarea id="d-notes" rows="5" placeholder="Details, links, next steps…"></textarea>
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Due date</span>
+        <span class="due-wrap">
+          <input type="date" id="d-due">
+          <button type="button" id="d-due-clear" class="link-btn">Clear</button>
+        </span>
+      </label>
+      <label class="field" id="d-ws-field">
+        <span class="field-label">Workspace</span>
+        <select id="d-ws"></select>
+      </label>
+    </div>
+
+    <fieldset class="field q-choice">
+      <legend class="field-label">Quadrant</legend>
+      <label data-q="do"><input type="radio" name="d-q" value="do"><span>Do first</span></label>
+      <label data-q="schedule"><input type="radio" name="d-q" value="schedule"><span>Schedule</span></label>
+      <label data-q="delegate"><input type="radio" name="d-q" value="delegate"><span>Delegate</span></label>
+      <label data-q="eliminate"><input type="radio" name="d-q" value="eliminate"><span>Eliminate</span></label>
+    </fieldset>
+
+    <div class="sheet-foot">
+      <button type="button" id="d-delete" class="btn ghost-danger">Delete task</button>
+      <span class="saved-hint">Changes save automatically</span>
+      <button type="submit" class="btn primary">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ws-dialog" class="sheet" aria-labelledby="ws-dialog-title">
+  <form method="dialog">
+    <h2 id="ws-dialog-title">Workspace</h2>
+    <label class="field">
+      <span class="field-label">Name</span>
+      <input type="text" id="w-name" maxlength="40">
+    </label>
+    <div class="field">
+      <span class="field-label">Emoji</span>
+      <div id="w-emojis" class="emoji-grid"></div>
+      <input type="text" id="w-emoji-custom" class="emoji-custom" maxlength="8" placeholder="…or type your own" aria-label="Custom emoji">
+    </div>
+    <div class="field">
+      <span class="field-label">Accent colour</span>
+      <div id="w-colors" class="swatches"></div>
+    </div>
+    <div class="field">
+      <span class="field-label">Position</span>
+      <div class="pos-row">
+        <button type="button" id="w-left" class="btn small">← Move left</button>
+        <button type="button" id="w-right" class="btn small">Move right →</button>
+      </div>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" id="w-delete" class="btn ghost-danger">Delete workspace</button>
+      <span></span>
+      <button type="submit" class="btn primary">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirm" class="sheet confirm" aria-labelledby="c-title">
+  <form method="dialog">
+    <h2 id="c-title"></h2>
+    <p id="c-body"></p>
+    <div class="sheet-foot">
+      <span></span>
+      <button type="submit" value="cancel" class="btn" id="c-cancel">Cancel</button>
+      <button type="submit" value="ok" class="btn primary" id="c-ok">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden>
+  <span id="toast-msg"></span>
+  <button id="toast-undo" type="button" class="toast-action">Undo</button>
+</div>
+
+<input type="file" id="import-file" accept="application/json,.json" hidden>
+
+<script src="js/app.js" defer></script>
+</body>
+</html>
