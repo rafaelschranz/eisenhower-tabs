@@ -18,12 +18,12 @@ To update after changing files, click the reload icon on the extension's card in
 
 **Tasks**
 
-- Type in the quick-add field and press Enter. The coloured squares next to it choose the quadrant.
+- Type in the quick-add field and press Enter. The picker next to it chooses the quadrant; while typing, `Tab` cycles through the quadrants and `Alt`+`1`–`4` picks one directly. Focus stays in the field for the next task.
 - Or click **+** in a quadrant and type; Enter adds the note and keeps the composer open for the next one.
 - Drag notes to reorder them or to move them to another quadrant. Drop a note on a workspace tab to move it there.
 - Click a note for details: title, notes, due date, quadrant, workspace, done.
-- Tick the circle on a note to complete it. It flies into the **Done** pile.
-- Overdue notes get a red outline, notes due today get a "Today" badge.
+- Hover a note (or focus it with the keyboard) and tick the circle to complete it. It flies into the **Done** pile.
+- Overdue notes show a red "Overdue" badge, notes due today a tinted "Today" badge.
 - Deleting, completing, moving and clearing all offer **Undo** for a few seconds.
 
 **Done pile**
@@ -45,6 +45,7 @@ The **⋯** menu in the header has **Export backup** (downloads all workspaces, 
 | Key | Action |
 | --- | --- |
 | `N` | New task (focus quick add) |
+| `Tab` / `Alt`+`1`–`4` while typing a task | Change the target quadrant |
 | `D` | Open or close the done pile |
 | `[` / `]` | Previous / next workspace |
 | `Enter` on a focused note | Open details |

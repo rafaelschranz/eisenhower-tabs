@@ -12,22 +12,25 @@
 
 <header class="topbar">
   <div class="hello">
-    <h1 id="greeting">Hello</h1>
-    <p class="subline"><span id="today"></span><span class="sep" aria-hidden="true">·</span><span id="summary"></span></p>
+    <div class="hello-top">
+      <h1 id="greeting">Hello</h1>
+      <span id="today" class="today"></span>
+    </div>
+    <p id="summary" class="summary"></p>
   </div>
 
   <div class="actions">
-    <button id="done-toggle" class="btn" type="button" aria-expanded="false" aria-controls="drawer" title="Done pile (D)">
+    <button id="done-toggle" class="btn quiet" type="button" aria-expanded="false" aria-controls="drawer" title="Done pile (D)">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.2 8.3l2 2 3.6-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Done</span>
       <span id="done-count" class="pill">0</span>
     </button>
-    <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+    <button id="theme-toggle" class="icon-btn quiet" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
       <svg class="i-moon" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
       <svg class="i-sun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     </button>
     <div class="menu-wrap">
-      <button id="menu-toggle" class="icon-btn" type="button" aria-label="Backup and shortcuts" title="Backup and shortcuts" aria-haspopup="true" aria-expanded="false">
+      <button id="menu-toggle" class="icon-btn quiet" type="button" aria-label="Backup and shortcuts" title="Backup and shortcuts" aria-haspopup="true" aria-expanded="false">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.2" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.8" cy="8" r="1.3" fill="currentColor"/></svg>
       </button>
       <div id="menu" class="menu" hidden>
@@ -43,6 +46,7 @@
         <p class="menu-label">Shortcuts</p>
         <dl class="shortcuts">
           <div><dt><kbd>N</kbd></dt><dd>New task</dd></div>
+          <div><dt><kbd>Tab</kbd> / <kbd>Alt</kbd> <kbd>1–4</kbd></dt><dd>Pick quadrant</dd></div>
           <div><dt><kbd>D</kbd></dt><dd>Done pile</dd></div>
           <div><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Switch workspace</dd></div>
           <div><dt><kbd>Ctrl</kbd> <kbd>Z</kbd></dt><dd>Undo</dd></div>
@@ -61,14 +65,14 @@
 
   <form id="quick-add" class="quick-add" autocomplete="off">
     <svg class="qa-plus" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-    <input id="quick-input" type="text" maxlength="300" placeholder="Add a task and press Enter" aria-label="Add a task">
-    <span id="q-pick-label" class="q-pick-label" aria-hidden="true">Do first</span>
+    <input id="quick-input" type="text" maxlength="300" placeholder="Add a task and press Enter" aria-label="Add a task" aria-describedby="qa-help">
     <div class="q-pick" role="radiogroup" aria-label="Add to quadrant">
-      <label data-q="do" title="Do first"><input type="radio" name="quick-q" value="do" checked><span class="sr-only">Do first</span></label>
-      <label data-q="schedule" title="Schedule"><input type="radio" name="quick-q" value="schedule"><span class="sr-only">Schedule</span></label>
-      <label data-q="delegate" title="Delegate"><input type="radio" name="quick-q" value="delegate"><span class="sr-only">Delegate</span></label>
-      <label data-q="eliminate" title="Eliminate"><input type="radio" name="quick-q" value="eliminate"><span class="sr-only">Eliminate</span></label>
+      <label data-q="do" title="Do first (Alt+1)"><input type="radio" name="quick-q" value="do" checked><span class="dot" aria-hidden="true"></span><span class="q-name">Do first</span></label>
+      <label data-q="schedule" title="Schedule (Alt+2)"><input type="radio" name="quick-q" value="schedule"><span class="dot" aria-hidden="true"></span><span class="q-name">Schedule</span></label>
+      <label data-q="delegate" title="Delegate (Alt+3)"><input type="radio" name="quick-q" value="delegate"><span class="dot" aria-hidden="true"></span><span class="q-name">Delegate</span></label>
+      <label data-q="eliminate" title="Eliminate (Alt+4)"><input type="radio" name="quick-q" value="eliminate"><span class="dot" aria-hidden="true"></span><span class="q-name">Eliminate</span></label>
     </div>
+    <span id="qa-help" class="sr-only">Press Tab or Alt plus 1 to 4 to change the quadrant while typing. Enter adds the task.</span>
   </form>
 </header>
 
@@ -80,9 +84,8 @@
 
   <section class="quadrant" data-q="do" aria-labelledby="qt-do">
     <header class="q-head">
-      <h2 class="q-title" id="qt-do">Do first</h2>
+      <h2 class="q-title" id="qt-do" title="Urgent &amp; important">Do first</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <span class="q-hint">Urgent &amp; important</span>
       <button class="q-add" type="button" aria-label="Add task to Do first" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
@@ -92,9 +95,8 @@
 
   <section class="quadrant" data-q="schedule" aria-labelledby="qt-schedule">
     <header class="q-head">
-      <h2 class="q-title" id="qt-schedule">Schedule</h2>
+      <h2 class="q-title" id="qt-schedule" title="Important, not urgent">Schedule</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <span class="q-hint">Important, not urgent</span>
       <button class="q-add" type="button" aria-label="Add task to Schedule" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
@@ -104,9 +106,8 @@
 
   <section class="quadrant" data-q="delegate" aria-labelledby="qt-delegate">
     <header class="q-head">
-      <h2 class="q-title" id="qt-delegate">Delegate</h2>
+      <h2 class="q-title" id="qt-delegate" title="Urgent, not important">Delegate</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <span class="q-hint">Urgent, not important</span>
       <button class="q-add" type="button" aria-label="Add task to Delegate" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
@@ -116,9 +117,8 @@
 
   <section class="quadrant" data-q="eliminate" aria-labelledby="qt-eliminate">
     <header class="q-head">
-      <h2 class="q-title" id="qt-eliminate">Eliminate</h2>
+      <h2 class="q-title" id="qt-eliminate" title="Neither urgent nor important">Eliminate</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <span class="q-hint">Neither urgent nor important</span>
       <button class="q-add" type="button" aria-label="Add task to Eliminate" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
