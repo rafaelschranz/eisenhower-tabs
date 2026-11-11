@@ -16,6 +16,15 @@ To update after changing files, click the reload icon on the extension's card in
 
 ## Using it
 
+**The four quadrants**
+
+| | Urgent | Not urgent |
+| --- | --- | --- |
+| **Important** | **Do first** | **Plan ahead**: notes without a date show a "When?" hint; click it to pick one |
+| **Not important** | **Get off the plate**: handle it quickly, in one go. **Batch them** opens just these tasks with large checkboxes | **Review**: decide later. Notes fade after 14 days; **Review** walks through them one at a time: keep, move or drop |
+
+Dropped tasks go to the done pile marked "Dropped" and can be restored. You can rename the quadrants per workspace in the workspace menu ("Reset to defaults" brings the names back).
+
 **Tasks**
 
 - Type in the quick-add field and press Enter. The picker next to it chooses the quadrant; while typing, `Tab` cycles through the quadrants and `Alt`+`1`–`4` picks one directly. Focus stays in the field for the next task.
@@ -33,7 +42,7 @@ Click **Done** in the header. Completed tasks are listed newest first, and can b
 **Workspaces**
 
 - Click a tab to switch; a new tab always opens the workspace you used last.
-- **+** creates a workspace. The **⋯** on the active tab (or a double-click) opens its name, emoji, accent colour, position and delete.
+- **+** creates a workspace. The **⋯** on the active tab (or a double-click) opens its name, emoji, accent colour, quadrant names, position and delete.
 - Drag tabs sideways to reorder them.
 
 **Backup**
@@ -51,13 +60,15 @@ The **⋯** menu in the header has **Export backup** (downloads all workspaces, 
 | `Enter` on a focused note | Open details |
 | `Delete` on a focused note | Delete it |
 | `Ctrl`/`Cmd` + `Z` | Undo the last delete, completion or move |
-| `Esc` | Close the detail view, menu or done pile |
+| `Esc` | Close the detail view, Batch or Review mode, menu or done pile |
 
 Chrome puts the cursor in the address bar on a new tab, so click the page (or press Tab) once before using single-key shortcuts.
 
 ## Where the data lives
 
 All data is stored in `chrome.storage.local` under the key `eisenhower.v1` and saved on every change. It stays in your Chrome profile on this machine and is not synced.
+
+Data saved by earlier versions (with the Schedule, Delegate and Eliminate quadrants) is converted when it is loaded, and older JSON backups can still be imported.
 
 Removing the extension deletes its data, so export a backup first. Chrome also ties an unpacked extension's data to its folder path: if you move the folder and load it again, it starts empty, and you can bring your tasks back with Import.
 
@@ -70,6 +81,16 @@ css/styles.css    Styles, light and dark themes
 js/theme.js       Applies the theme before first paint
 js/app.js         App logic (state, rendering, drag and drop, storage)
 icons/            Extension icons
+fonts/            Bundled fonts and their licences
 ```
 
 No build step and no dependencies.
+
+## Fonts
+
+The extension bundles the latin subsets of two variable fonts, both under the SIL Open Font License 1.1 (licence texts in `fonts/`):
+
+- Bricolage Grotesque, © The Bricolage Grotesque Project Authors
+- DM Sans, © The DM Sans Project Authors
+
+The files come from the `@fontsource-variable/bricolage-grotesque` and `@fontsource-variable/dm-sans` npm packages (version 5.3.0). To swap fonts, replace the files and edit `--font-display` and `--font-body` at the top of `css/styles.css`.

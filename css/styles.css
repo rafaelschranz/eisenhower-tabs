@@ -1,4 +1,19 @@
 /* ==========================================================================
+   Fonts: bundled latin subsets, loaded from the extension itself (SIL OFL 1.1,
+   see fonts/). font-display: block is safe because the files are local.
+   ========================================================================== */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("../fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 200 800; font-style: normal; font-display: block;
+}
+@font-face {
+  font-family: "DM Sans";
+  src: url("../fonts/dm-sans-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 1000; font-style: normal; font-display: block;
+}
+
+/* ==========================================================================
    Tokens. Everything themeable lives here: colours, radii, shadows, timings.
    ========================================================================== */
 :root {
@@ -16,14 +31,14 @@
   /* Quadrants: -note is the sticky colour, -ink is for text on a note,
      -accent is for titles and controls on the quadrant surface. */
   --do-note: #ffb8a0;        --do-ink: #662006;        --do-accent: #c0522a;
-  --schedule-note: #a9d5ff;  --schedule-ink: #093a6e;  --schedule-accent: #1b68b8;
-  --delegate-note: #ffe07a;  --delegate-ink: #5c3f00;  --delegate-accent: #8a6100;
-  --eliminate-note: #d9d1f1; --eliminate-ink: #3f385f; --eliminate-accent: #675f86;
+  --plan-note: #a9d5ff;  --plan-ink: #093a6e;  --plan-accent: #1b68b8;
+  --offload-note: #ffe07a;  --offload-ink: #5c3f00;  --offload-accent: #8a6100;
+  --review-note: #d9d1f1; --review-ink: #3f385f; --review-accent: #675f86;
   /* Quadrant surfaces: near-white with a hint of the quadrant colour */
   --do-zone: color-mix(in srgb, var(--do-accent) 11%, var(--surface));
-  --schedule-zone: color-mix(in srgb, var(--schedule-accent) 7%, var(--surface));
-  --delegate-zone: color-mix(in srgb, var(--delegate-accent) 7%, var(--surface));
-  --eliminate-zone: color-mix(in srgb, var(--eliminate-accent) 7%, var(--surface));
+  --plan-zone: color-mix(in srgb, var(--plan-accent) 7%, var(--surface));
+  --offload-zone: color-mix(in srgb, var(--offload-accent) 7%, var(--surface));
+  --review-zone: color-mix(in srgb, var(--review-accent) 7%, var(--surface));
   --tab-tint: 18%;
   --focus-halo: 28%;         /* soft ring around the Do first quadrant */
 
@@ -41,6 +56,7 @@
   --note-w-small: 152px;    --note-min-h-small: 84px;    --note-fs-small: 13.5px;    --note-pad-small: 11px 12px 10px;
   --note-w-compact: 128px;  --note-min-h-compact: 66px;  --note-fs-compact: 12.5px;  --note-pad-compact: 9px 10px 8px;
   --note-lines: 4;          /* title lines before the ellipsis */
+  --n-badge: 11.5px;        /* badge size outside a quadrant (dialogs) */
 
   /* Radii */
   --r-note: 5px;
@@ -66,8 +82,12 @@
   --accent: #7c5cff; /* active workspace colour, set from JS */
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
 
-  --font: ui-rounded, "SF Pro Rounded", "Nunito", "Inter", system-ui, -apple-system,
-    "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+/* Typography: display for the greeting, quadrant titles and workspace tabs; body for everything else */
+  --font-display: "Bricolage Grotesque", "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fw-greeting: 600;
+  --fw-title: 700;
+  --fw-note: 500;
   color-scheme: light;
 }
 
@@ -84,14 +104,14 @@
 
   /* Deeper, less saturated notes so they do not glare on the dark board */
   --do-note: #cf917f;        --do-ink: #4a1503;        --do-accent: #f0a48c;
-  --schedule-note: #86a9c9;  --schedule-ink: #062a52;  --schedule-accent: #8fbde6;
-  --delegate-note: #c9b164;  --delegate-ink: #3f2c00;  --delegate-accent: #dcc375;
-  --eliminate-note: #a59ebf; --eliminate-ink: #2a2447; --eliminate-accent: #b9b1d6;
+  --plan-note: #86a9c9;  --plan-ink: #062a52;  --plan-accent: #8fbde6;
+  --offload-note: #c9b164;  --offload-ink: #3f2c00;  --offload-accent: #dcc375;
+  --review-note: #a59ebf; --review-ink: #2a2447; --review-accent: #b9b1d6;
   /* Same lightness and chroma for all four, only the hue differs */
   --do-zone: oklch(0.285 0.024 45);
-  --schedule-zone: oklch(0.27 0.024 250);
-  --delegate-zone: oklch(0.27 0.024 95);
-  --eliminate-zone: oklch(0.27 0.024 300);
+  --plan-zone: oklch(0.27 0.024 250);
+  --offload-zone: oklch(0.27 0.024 95);
+  --review-zone: oklch(0.27 0.024 300);
   --note-ink: #1d1d22;
   --note-ink-soft: rgba(29, 29, 34, 0.86);
   --overdue: #96200f;
@@ -107,10 +127,11 @@
   color-scheme: dark;
 }
 
+/* Any element with data-q picks up that quadrant's colours */
 [data-q="do"]        { --q: var(--do-note);        --q-ink: var(--do-ink);        --q-accent: var(--do-accent); --q-zone: var(--do-zone); }
-[data-q="schedule"]  { --q: var(--schedule-note);  --q-ink: var(--schedule-ink);  --q-accent: var(--schedule-accent); --q-zone: var(--schedule-zone); }
-[data-q="delegate"]  { --q: var(--delegate-note);  --q-ink: var(--delegate-ink);  --q-accent: var(--delegate-accent); --q-zone: var(--delegate-zone); }
-[data-q="eliminate"] { --q: var(--eliminate-note); --q-ink: var(--eliminate-ink); --q-accent: var(--eliminate-accent); --q-zone: var(--eliminate-zone); }
+[data-q="plan"]  { --q: var(--plan-note);  --q-ink: var(--plan-ink);  --q-accent: var(--plan-accent); --q-zone: var(--plan-zone); }
+[data-q="offload"]  { --q: var(--offload-note);  --q-ink: var(--offload-ink);  --q-accent: var(--offload-accent); --q-zone: var(--offload-zone); }
+[data-q="review"] { --q: var(--review-note); --q-ink: var(--review-ink); --q-accent: var(--review-accent); --q-zone: var(--review-zone); }
 
 /* ==========================================================================
    Base
@@ -123,7 +144,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; } /* the page never scro
 body {
   display: flex;
   flex-direction: column;
-  font-family: var(--font);
+  font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.4;
   color: var(--ink);
@@ -203,9 +224,9 @@ svg { width: 16px; height: 16px; flex: none; }
 }
 
 .hello-top { display: flex; align-items: baseline; gap: 12px; }
-.hello h1 { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; }
+.hello h1 { font-family: var(--font-display); font-size: 25px; font-weight: var(--fw-greeting); letter-spacing: -0.015em; line-height: 1.15; white-space: nowrap; }
 .today { color: var(--ink-soft); font-size: 13px; white-space: nowrap; }
-.summary { margin-top: 2px; font-size: 16px; font-weight: 650; letter-spacing: -0.005em; }
+.summary { margin-top: 3px; font-size: 15.5px; font-weight: 600; }
 .summary .overdue { color: var(--overdue); white-space: nowrap; }
 :root[data-theme="dark"] .summary .overdue { color: var(--danger); }
 
@@ -235,7 +256,7 @@ kbd {
   display: inline-block; min-width: 20px; padding: 1px 5px;
   border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px;
   background: var(--surface-2); color: var(--ink);
-  font: 600 11px/1.5 var(--font); text-align: center;
+  font: 600 11px/1.5 var(--font-body); text-align: center;
 }
 
 /* Workspace tabs: the active one is filled with its own colour, no outline */
@@ -259,14 +280,14 @@ kbd {
 .ws-tab-btn {
   display: flex; align-items: center; gap: 7px;
   height: 100%; padding: 0 12px; border: 0; background: none; border-radius: 10px;
-  font-weight: 600; font-size: 13.5px; white-space: nowrap; touch-action: none; user-select: none;
+  font-family: var(--font-display); font-weight: 500; font-size: 14.5px; white-space: nowrap; touch-action: none; user-select: none;
   color: var(--ink-soft);
 }
 .ws-tab:hover .ws-tab-btn { color: var(--ink); }
-.ws-tab.active .ws-tab-btn { color: var(--ink); font-weight: 750; }
+.ws-tab.active .ws-tab-btn { color: var(--ink); font-weight: 700; }
 .ws-emoji { font-size: 15px; }
 .ws-tab:not(.active) .ws-emoji { opacity: 0.75; }
-.ws-count { font-size: 11.5px; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.ws-count { font-family: var(--font-body); font-size: 11.5px; font-weight: 700; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .ws-tab-edit {
   display: grid; place-items: center; width: 26px; height: 26px; margin: 0 4px 0 -6px;
   border: 0; border-radius: 7px; background: none; color: var(--ink-soft);
@@ -291,7 +312,7 @@ kbd {
 .quick-add input::placeholder { color: var(--ink-soft); }
 .q-pick { display: flex; gap: 2px; flex: none; }
 .q-pick label {
-  position: relative; display: flex; align-items: center; gap: 6px;
+  position: relative; display: flex; align-items: center; gap: 6px; max-width: 170px;
   height: 30px; padding: 0 9px; border-radius: 9px; cursor: pointer;
   font-size: 12.5px; font-weight: 600; color: var(--ink-soft); white-space: nowrap; user-select: none;
 }
@@ -303,6 +324,7 @@ kbd {
 .q-pick label:has(input:checked) { background: var(--q); color: var(--note-ink); font-weight: 700; }
 .q-pick label:has(input:checked) .dot { background: var(--q-ink); box-shadow: none; }
 .q-pick label:has(input:focus-visible) { outline: 2px solid var(--q-accent); outline-offset: 2px; }
+.q-pick .q-name { overflow: hidden; text-overflow: ellipsis; }
 .q-pick input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 
 /* ==========================================================================
@@ -328,9 +350,9 @@ kbd {
 .ax-important { grid-area: 2 / 1; }
 .ax-not-important { grid-area: 3 / 1; }
 .quadrant[data-q="do"] { grid-area: 2 / 2; }
-.quadrant[data-q="schedule"] { grid-area: 2 / 3; }
-.quadrant[data-q="delegate"] { grid-area: 3 / 2; }
-.quadrant[data-q="eliminate"] { grid-area: 3 / 3; }
+.quadrant[data-q="plan"] { grid-area: 2 / 3; }
+.quadrant[data-q="offload"] { grid-area: 3 / 2; }
+.quadrant[data-q="review"] { grid-area: 3 / 3; }
 
 /* Quadrants are near-white surfaces; the notes carry the colour */
 .quadrant {
@@ -364,8 +386,30 @@ kbd {
 .quadrant.drop-target::after { opacity: 0.7; }
 
 .q-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 4px 18px; min-height: 48px; }
-.q-title { font-size: 15px; font-weight: 750; color: var(--q-accent); white-space: nowrap; }
-.quadrant[data-q="do"] .q-title { font-size: 19px; letter-spacing: -0.01em; }
+.q-title {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-display); font-size: 17px; font-weight: var(--fw-title); letter-spacing: -0.01em;
+  color: var(--q-accent); white-space: nowrap;
+}
+.quadrant[data-q="do"] .q-title { font-size: 21px; letter-spacing: -0.015em; }
+/* Subtitle: first thing to give way when the header gets tight */
+.q-sub {
+  flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--ink-soft);
+}
+.q-action {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 30px; padding: 0 11px; border: 0; border-radius: var(--r-ctl);
+  background: color-mix(in srgb, var(--q-accent) 11%, transparent); color: var(--q-accent);
+  font-size: 12.5px; font-weight: 650; white-space: nowrap;
+  transition: transform var(--t-fast) var(--ease);
+}
+.q-action:hover { background: color-mix(in srgb, var(--q-accent) 22%, transparent); }
+.q-action:active { transform: scale(0.96); }
+.q-action-count {
+  min-width: 18px; padding: 0 5px; border-radius: var(--r-pill);
+  background: var(--q-accent); color: var(--q-zone); font-size: 11px; font-weight: 750; line-height: 18px; text-align: center;
+}
 .q-count {
   min-width: 22px; padding: 1px 7px; border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--q-accent) 13%, transparent); color: var(--q-accent);
@@ -449,7 +493,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .note-placeholder.off { display: none; }
 
 .note-title {
-  font-size: var(--n-fs); font-weight: 600; line-height: 1.33; overflow-wrap: anywhere;
+  font-size: var(--n-fs); font-weight: var(--fw-note); line-height: 1.33; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--note-lines); overflow: hidden;
 }
 .note-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 8px; padding-right: 24px; }
@@ -463,6 +507,17 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .due-soon { background: color-mix(in srgb, var(--q-ink) 10%, transparent); }
 .due-today { background: var(--q-ink); color: var(--q); font-weight: 750; } /* accent: the note's colours inverted */
 .due-overdue { background: var(--overdue-bg); color: var(--overdue); font-weight: 700; }
+/* Plan ahead: a nudge to pick a date */
+.when-hint {
+  padding: 1px 8px; border-radius: var(--r-pill); cursor: pointer;
+  border: 1.5px dashed color-mix(in srgb, var(--q-ink) 45%, transparent); background: none;
+  font-size: var(--n-badge); font-weight: 650; line-height: 1.45; color: var(--q-ink);
+}
+.when-hint:hover, .when-hint:focus-visible { background: color-mix(in srgb, var(--q-ink) 12%, transparent); border-style: solid; }
+.when-hint:focus-visible { outline: 2px solid var(--q-ink); outline-offset: 2px; }
+/* Review: notes that have waited too long fade a little */
+.note.is-stale { opacity: 0.6; transition: rotate var(--t-move) var(--ease), translate var(--t-move) var(--ease), scale var(--t-move) var(--ease), opacity var(--t-move) var(--ease); }
+body:not(.is-dragging) .note.is-stale:hover, .note.is-stale:focus-visible, .note.is-stale.dragging { opacity: 1; }
 .has-notes { display: inline-grid; color: var(--note-ink); opacity: 0.32; }
 .has-notes svg { width: 12px; height: 12px; }
 
@@ -486,9 +541,9 @@ body:not(.is-dragging) .note:hover .note-check, .note:focus-visible .note-check,
 .composer-input {
   flex: 1; min-height: 0; resize: none; padding: 0;
   border: 0; outline: 0; background: none; color: var(--note-ink);
-  font-size: var(--n-fs); font-weight: 600; line-height: 1.33;
+  font-size: var(--n-fs); font-weight: var(--fw-note); line-height: 1.33;
 }
-.composer-input::placeholder { color: var(--note-ink-soft); font-weight: 500; }
+.composer-input::placeholder { color: var(--note-ink-soft); font-weight: 400; }
 
 /* ==========================================================================
    Done drawer
@@ -519,6 +574,8 @@ body:not(.is-dragging) .note:hover .note-check, .note:focus-visible .note-check,
 .done-main { flex: 1; min-width: 0; padding: 0; border: 0; background: none; text-align: left; }
 .done-title { display: block; font-size: 13.5px; font-weight: 600; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink) 40%, transparent); overflow-wrap: anywhere; }
 .done-date { display: block; font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+.done-item.dropped { border-left-style: dashed; }
+.done-item.dropped .done-title { text-decoration-style: dashed; }
 .done-act {
   display: grid; place-items: center; flex: none; width: 28px; height: 28px;
   border: 0; border-radius: 8px; background: none; color: var(--ink-soft);
@@ -596,7 +653,7 @@ dialog.detail {
 .q-choice input { position: absolute; opacity: 0; }
 .q-choice span {
   display: block; padding: 7px 4px; border-radius: 9px; text-align: center;
-  font-size: 12.5px; font-weight: 650; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   background: var(--q); border: 1.5px solid rgba(36, 36, 43, 0.14);
   box-shadow: inset 0 0 0 100px rgba(255, 255, 255, 0.3);
   transition: transform var(--t-fast) var(--ease);
@@ -606,6 +663,63 @@ dialog.detail {
 .q-choice input:focus-visible + span { outline: 2px solid var(--note-ink); outline-offset: 2px; }
 
 /* Workspace editor */
+.qname-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.qname-grid label { display: flex; align-items: center; gap: 8px; }
+.qname-grid .dot { width: 12px; height: 12px; border-radius: 4px; flex: none; background: var(--q); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-ink) 35%, transparent); }
+.sheet .qname-grid input { padding: 6px 9px; font-size: 13px; }
+#w-qreset { align-self: flex-start; }
+#w-qreset:disabled { opacity: 0.35; cursor: default; }
+
+/* Batch and Review modes: focused sheets tinted like their quadrant */
+dialog.mode { width: min(520px, calc(100vw - 32px)); background: var(--q-zone); border: 1px solid color-mix(in srgb, var(--q-accent) 22%, transparent); }
+.mode-top { display: flex; align-items: flex-start; gap: 12px; }
+.mode-top > div { flex: 1; min-width: 0; }
+dialog.mode h2 { font-family: var(--font-display); font-size: 22px; font-weight: var(--fw-title); letter-spacing: -0.015em; color: var(--q-accent); }
+.mode-sub { margin-top: 2px; font-size: 13px; color: var(--ink-soft); }
+.mode-progress { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+
+.batch-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: min(52vh, 460px); overflow-y: auto; }
+.batch-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer;
+  border-radius: var(--r-note); background: var(--q); color: var(--note-ink); box-shadow: var(--sh-note);
+  transition: opacity var(--t-move) var(--ease);
+}
+.batch-row input { position: absolute; opacity: 0; pointer-events: none; }
+.batch-row .box {
+  display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--q-ink) 55%, transparent); background: color-mix(in srgb, #fff 60%, var(--q)); color: transparent;
+  transition: transform var(--t-fast) var(--ease-pop);
+}
+.batch-row .box svg { width: 16px; height: 16px; }
+.batch-row:hover .box { border-color: var(--check); color: var(--check); }
+.batch-row input:checked + .box { background: var(--check); border-color: var(--check); color: #fff; transform: scale(1.08); }
+.batch-row input:focus-visible + .box { outline: 2.5px solid var(--q-ink); outline-offset: 2px; }
+.batch-text { flex: 1; min-width: 0; font-size: 15px; font-weight: var(--fw-note); overflow-wrap: anywhere; }
+.batch-row.checked { opacity: 0.55; }
+.batch-row.checked .batch-text { text-decoration: line-through; }
+
+.rv-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  min-height: 150px; padding: 18px 20px; border-radius: var(--r-note);
+  background: var(--q); color: var(--note-ink); box-shadow: var(--sh-note);
+}
+.rv-card.pop { animation: note-pop var(--t-move) var(--ease-pop); }
+.rv-card h3 { margin: 0; font-size: 19px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.rv-age { font-size: 12px; font-weight: 600; color: var(--q-ink); }
+.rv-age.stale { padding: 1px 8px; border-radius: var(--r-pill); background: var(--q-ink); color: var(--q); }
+.rv-notes { font-size: 13.5px; color: var(--note-ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }
+.rv-actions { display: flex; align-items: flex-end; gap: 10px; }
+.rv-move { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.rv-targets { display: flex; gap: 6px; flex-wrap: wrap; }
+.rv-target {
+  height: 34px; padding: 0 11px; border-radius: var(--r-ctl); max-width: 100%;
+  border: 1.5px solid rgba(36, 36, 43, 0.14); background: var(--q); color: var(--note-ink);
+  font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: transform var(--t-fast) var(--ease);
+}
+.rv-target:hover { transform: translateY(-1px); border-color: var(--q-ink); }
+.rv-empty { padding: 44px 0; text-align: center; font-size: 16px; font-weight: 600; color: var(--ink-soft); }
+
 .emoji-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
 .emoji-grid button {
   aspect-ratio: 1; padding: 0; border: 1.5px solid transparent; border-radius: 9px;
