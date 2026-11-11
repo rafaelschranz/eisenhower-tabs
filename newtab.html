@@ -5,6 +5,8 @@
   <title>New Tab</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="js/theme.js"></script>
+  <link rel="preload" href="fonts/bricolage-grotesque-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/dm-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/styles.css">
   <link rel="icon" href="icons/icon32.png">
 </head>
@@ -67,10 +69,10 @@
     <svg class="qa-plus" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
     <input id="quick-input" type="text" maxlength="300" placeholder="Add a task and press Enter" aria-label="Add a task" aria-describedby="qa-help">
     <div class="q-pick" role="radiogroup" aria-label="Add to quadrant">
-      <label data-q="do" title="Do first (Alt+1)"><input type="radio" name="quick-q" value="do" checked><span class="dot" aria-hidden="true"></span><span class="q-name">Do first</span></label>
-      <label data-q="schedule" title="Schedule (Alt+2)"><input type="radio" name="quick-q" value="schedule"><span class="dot" aria-hidden="true"></span><span class="q-name">Schedule</span></label>
-      <label data-q="delegate" title="Delegate (Alt+3)"><input type="radio" name="quick-q" value="delegate"><span class="dot" aria-hidden="true"></span><span class="q-name">Delegate</span></label>
-      <label data-q="eliminate" title="Eliminate (Alt+4)"><input type="radio" name="quick-q" value="eliminate"><span class="dot" aria-hidden="true"></span><span class="q-name">Eliminate</span></label>
+      <label data-q="do" title="Do first"><input type="radio" name="quick-q" value="do" checked><span class="dot" aria-hidden="true"></span><span class="q-name">Do first</span></label>
+      <label data-q="plan" title="Plan ahead"><input type="radio" name="quick-q" value="plan"><span class="dot" aria-hidden="true"></span><span class="q-name">Plan ahead</span></label>
+      <label data-q="offload" title="Get off the plate"><input type="radio" name="quick-q" value="offload"><span class="dot" aria-hidden="true"></span><span class="q-name">Get off the plate</span></label>
+      <label data-q="review" title="Review"><input type="radio" name="quick-q" value="review"><span class="dot" aria-hidden="true"></span><span class="q-name">Review</span></label>
     </div>
     <span id="qa-help" class="sr-only">Press Tab or Alt plus 1 to 4 to change the quadrant while typing. Enter adds the task.</span>
   </form>
@@ -84,8 +86,9 @@
 
   <section class="quadrant" data-q="do" aria-labelledby="qt-do">
     <header class="q-head">
-      <h2 class="q-title" id="qt-do" title="Urgent &amp; important">Do first</h2>
+      <h2 class="q-title" id="qt-do">Do first</h2>
       <span class="q-count" title="Open tasks">0</span>
+      <span class="q-sub" title="Urgent &amp; important">Urgent &amp; important</span>
       <button class="q-add" type="button" aria-label="Add task to Do first" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
@@ -93,33 +96,38 @@
     <div class="note-list"></div>
   </section>
 
-  <section class="quadrant" data-q="schedule" aria-labelledby="qt-schedule">
+  <section class="quadrant" data-q="plan" aria-labelledby="qt-plan">
     <header class="q-head">
-      <h2 class="q-title" id="qt-schedule" title="Important, not urgent">Schedule</h2>
+      <h2 class="q-title" id="qt-plan">Plan ahead</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <button class="q-add" type="button" aria-label="Add task to Schedule" title="Add task">
+      <span class="q-sub" title="Important, not urgent">Important, not urgent</span>
+      <button class="q-add" type="button" aria-label="Add task to Plan ahead" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
     </header>
     <div class="note-list"></div>
   </section>
 
-  <section class="quadrant" data-q="delegate" aria-labelledby="qt-delegate">
+  <section class="quadrant" data-q="offload" aria-labelledby="qt-offload">
     <header class="q-head">
-      <h2 class="q-title" id="qt-delegate" title="Urgent, not important">Delegate</h2>
+      <h2 class="q-title" id="qt-offload">Get off the plate</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <button class="q-add" type="button" aria-label="Add task to Delegate" title="Add task">
+      <span class="q-sub" title="Urgent, not important · handle it quickly, in one go">Urgent, not important · handle it quickly, in one go</span>
+      <button id="batch-open" class="q-action" type="button" hidden>Batch them</button>
+      <button class="q-add" type="button" aria-label="Add task to Get off the plate" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
     </header>
     <div class="note-list"></div>
   </section>
 
-  <section class="quadrant" data-q="eliminate" aria-labelledby="qt-eliminate">
+  <section class="quadrant" data-q="review" aria-labelledby="qt-review">
     <header class="q-head">
-      <h2 class="q-title" id="qt-eliminate" title="Neither urgent nor important">Eliminate</h2>
+      <h2 class="q-title" id="qt-review">Review</h2>
       <span class="q-count" title="Open tasks">0</span>
-      <button class="q-add" type="button" aria-label="Add task to Eliminate" title="Add task">
+      <span class="q-sub" title="Neither · decide later: keep, move or drop">Neither · decide later: keep, move or drop</span>
+      <button id="review-open" class="q-action" type="button" hidden>Review <span id="review-stale" class="q-action-count" hidden></span></button>
+      <button class="q-add" type="button" aria-label="Add task to Review" title="Add task">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
     </header>
@@ -179,9 +187,9 @@
     <fieldset class="field q-choice">
       <legend class="field-label">Quadrant</legend>
       <label data-q="do"><input type="radio" name="d-q" value="do"><span>Do first</span></label>
-      <label data-q="schedule"><input type="radio" name="d-q" value="schedule"><span>Schedule</span></label>
-      <label data-q="delegate"><input type="radio" name="d-q" value="delegate"><span>Delegate</span></label>
-      <label data-q="eliminate"><input type="radio" name="d-q" value="eliminate"><span>Eliminate</span></label>
+      <label data-q="plan"><input type="radio" name="d-q" value="plan"><span>Plan ahead</span></label>
+      <label data-q="offload"><input type="radio" name="d-q" value="offload"><span>Get off the plate</span></label>
+      <label data-q="review"><input type="radio" name="d-q" value="review"><span>Review</span></label>
     </fieldset>
 
     <div class="sheet-foot">
@@ -209,6 +217,16 @@
       <div id="w-colors" class="swatches"></div>
     </div>
     <div class="field">
+      <span class="field-label">Quadrant names in this workspace</span>
+      <div id="w-qnames" class="qname-grid">
+        <label data-q="do"><span class="dot" aria-hidden="true"></span><input type="text" class="w-qname" data-q="do" maxlength="28" aria-label="Name of the urgent and important quadrant"></label>
+        <label data-q="plan"><span class="dot" aria-hidden="true"></span><input type="text" class="w-qname" data-q="plan" maxlength="28" aria-label="Name of the important, not urgent quadrant"></label>
+        <label data-q="offload"><span class="dot" aria-hidden="true"></span><input type="text" class="w-qname" data-q="offload" maxlength="28" aria-label="Name of the urgent, not important quadrant"></label>
+        <label data-q="review"><span class="dot" aria-hidden="true"></span><input type="text" class="w-qname" data-q="review" maxlength="28" aria-label="Name of the neither urgent nor important quadrant"></label>
+      </div>
+      <button type="button" id="w-qreset" class="link-btn">Reset to defaults</button>
+    </div>
+    <div class="field">
       <span class="field-label">Position</span>
       <div class="pos-row">
         <button type="button" id="w-left" class="btn small">← Move left</button>
@@ -219,6 +237,54 @@
       <button type="button" id="w-delete" class="btn ghost-danger">Delete workspace</button>
       <span></span>
       <button type="submit" class="btn primary">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="batch" class="sheet mode" data-q="offload" aria-labelledby="batch-title">
+  <form method="dialog">
+    <div class="mode-top">
+      <div>
+        <h2 id="batch-title">Get off the plate</h2>
+        <p class="mode-sub">Handle them quickly, in one go. Tick each one as you finish it.</p>
+      </div>
+      <button class="icon-btn" type="submit" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    </div>
+    <ul id="batch-list" class="batch-list"></ul>
+    <div class="sheet-foot">
+      <span id="batch-progress" class="mode-progress" role="status"></span>
+      <button type="submit" class="btn primary">Done</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="review-mode" class="sheet mode" data-q="review" aria-labelledby="rv-heading">
+  <form method="dialog">
+    <div class="mode-top">
+      <div>
+        <h2 id="rv-heading">Review</h2>
+        <p class="mode-sub">Decide: keep, move or drop. <span id="rv-progress" role="status"></span></p>
+      </div>
+      <button class="icon-btn" type="submit" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+    </div>
+    <div id="rv-card" class="rv-card">
+      <p id="rv-age" class="rv-age"></p>
+      <h3 id="rv-title"></h3>
+      <p id="rv-notes" class="rv-notes"></p>
+      <span id="rv-due" class="due"></span>
+    </div>
+    <div id="rv-actions" class="rv-actions">
+      <button type="button" id="rv-keep" class="btn">Keep here</button>
+      <div class="rv-move">
+        <span class="field-label">Move to</span>
+        <div id="rv-targets" class="rv-targets"></div>
+      </div>
+      <button type="button" id="rv-drop" class="btn ghost-danger">Drop</button>
+    </div>
+    <p id="rv-empty" class="rv-empty" hidden>All reviewed ✨</p>
+    <div class="sheet-foot">
+      <span class="saved-hint">Dropped tasks go to the done pile and can be restored.</span>
+      <button type="submit" class="btn primary">Close</button>
     </div>
   </form>
 </dialog>

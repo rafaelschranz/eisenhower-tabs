@@ -9,13 +9,18 @@
   const TAB_ID = uid();
 
   const QUADRANTS = [
-    { id: 'do', title: 'Do first', empty: 'Nothing on fire. Enjoy the calm ☕' },
-    { id: 'schedule', title: 'Schedule', empty: 'Plant something for future you 🌱' },
-    { id: 'delegate', title: 'Delegate', empty: 'Nothing to hand off. All clear 🤝' },
-    { id: 'eliminate', title: 'Eliminate', empty: 'No distractions parked here ✨' },
+    { id: 'do', title: 'Do first', sub: 'Urgent & important', empty: 'Nothing on fire. Enjoy the calm ☕' },
+    { id: 'plan', title: 'Plan ahead', sub: 'Important, not urgent', empty: 'Nothing planned yet. What matters next? 🌱' },
+    { id: 'offload', title: 'Get off the plate', sub: 'Urgent, not important · handle it quickly, in one go', empty: 'Plate is clear. Nothing to knock out 🧹' },
+    { id: 'review', title: 'Review', sub: 'Neither · decide later: keep, move or drop', empty: 'Nothing waiting for a decision ✨' },
   ];
   const Q_IDS = QUADRANTS.map((q) => q.id);
   const Q_TITLE = Object.fromEntries(QUADRANTS.map((q) => [q.id, q.title]));
+  /** Quadrant ids used before the rename; mapped on load and on import. */
+  const LEGACY_QUADRANTS = { schedule: 'plan', delegate: 'offload', eliminate: 'review' };
+  const DATA_VERSION = 2;
+  const REVIEW_STALE_DAYS = 14; // tasks sitting in Review longer than this look faded
+  const QUADRANT_NAME_MAX = 28;
 
   const WS_COLORS = ['#7c5cff', '#2f80ed', '#12a594', '#30a46c', '#e5a000', '#f76b15', '#e93d82', '#687076'];
   const WS_EMOJIS = ['💼', '📚', '🏡', '✨', '🚀', '🎯', '💡', '🧪', '🎨', '🛠️', '💰', '🏃', '🌱', '🎓', '✈️', '❤️', '🧠', '📝', '🎵', '☕'];
@@ -149,7 +154,7 @@
   };
 
   function newWorkspace(name, emoji, color) {
-    return { id: uid(), name, emoji, color, tasks: [], done: [] };
+    return { id: uid(), name, emoji, color, quadrantNames: {}, tasks: [], done: [] };
   }
 
   function defaultState() {
@@ -158,7 +163,7 @@
       newWorkspace('Studies', '📚', WS_COLORS[2]),
       newWorkspace('Personal', '🏡', WS_COLORS[5]),
     ];
-    return { version: 1, theme: null, activeId: workspaces[0].id, workspaces };
+    return { version: DATA_VERSION, theme: null, activeId: workspaces[0].id, workspaces };
   }
 
   /** Validates anything coming from storage or a backup file. Throws if unusable. */
@@ -178,15 +183,30 @@
       if (!t || typeof t !== 'object') return null;
       const title = str(t.title, 300).trim();
       if (!title) return null;
+      const quadrant = LEGACY_QUADRANTS[t.quadrant] || t.quadrant;
       const out = {
         id: freshId(t.id),
         title,
         notes: str(t.notes, 20000),
         due: typeof t.due === 'string' && DATE_RE.test(t.due) ? t.due : null,
-        quadrant: Q_IDS.includes(t.quadrant) ? t.quadrant : 'do',
+        quadrant: Q_IDS.includes(quadrant) ? quadrant : 'do',
         createdAt: num(t.createdAt),
+        quadrantSince: num(t.quadrantSince), // when it entered its quadrant; "now" for older data
       };
-      if (done) out.completedAt = num(t.completedAt);
+      if (done) {
+        out.completedAt = num(t.completedAt);
+        if (t.dropped === true) out.dropped = true;
+      }
+      return out;
+    };
+    const names = (raw) => {
+      const out = {};
+      if (!raw || typeof raw !== 'object') return out;
+      for (const [key, value] of Object.entries(raw)) {
+        const id = LEGACY_QUADRANTS[key] || key;
+        const name = str(value, QUADRANT_NAME_MAX).trim();
+        if (Q_IDS.includes(id) && name && name !== Q_TITLE[id]) out[id] = name;
+      }
       return out;
     };
     const list = (arr, done) => (Array.isArray(arr) ? arr : []).map((t) => task(t, done)).filter(Boolean);
@@ -198,13 +218,14 @@
         name: str(w.name, 40).trim() || `Workspace ${i + 1}`,
         emoji: str(w.emoji, 8).trim() || '📋',
         color: typeof w.color === 'string' && COLOR_RE.test(w.color) ? w.color : WS_COLORS[i % WS_COLORS.length],
+        quadrantNames: names(w.quadrantNames),
         tasks: list(w.tasks, false),
         done: list(w.done, true),
       }));
     if (!workspaces.length) throw new Error('No workspaces found in this file.');
 
     return {
-      version: 1,
+      version: DATA_VERSION,
       theme: src.theme === 'dark' || src.theme === 'light' ? src.theme : null,
       activeId: workspaces.some((w) => w.id === src.activeId) ? src.activeId : workspaces[0].id,
       workspaces,
@@ -212,6 +233,18 @@
   }
 
   const activeWs = () => state.workspaces.find((w) => w.id === state.activeId) || state.workspaces[0];
+
+  /** A quadrant's name in a workspace: its own override, or the default. */
+  const qName = (ws, id) => (ws.quadrantNames && ws.quadrantNames[id]) || Q_TITLE[id];
+
+  /** Move a task to a quadrant and restart its age there. */
+  function setQuadrant(task, quadrant) {
+    if (task.quadrant === quadrant) return;
+    task.quadrant = quadrant;
+    task.quadrantSince = Date.now();
+  }
+  const daysIn = (task) => Math.floor((Date.now() - task.quadrantSince) / DAY_MS);
+  const isStale = (task) => task.quadrant === 'review' && Date.now() - task.quadrantSince > REVIEW_STALE_DAYS * DAY_MS;
 
   function findTask(id) {
     for (const ws of state.workspaces) {
@@ -315,7 +348,7 @@
   const board = $('#board');
   const quadEls = Object.fromEntries(QUADRANTS.map((q) => {
     const el = $(`.quadrant[data-q="${q.id}"]`);
-    return [q.id, { el, list: $('.note-list', el), count: $('.q-count', el) }];
+    return [q.id, { el, list: $('.note-list', el), count: $('.q-count', el), title: $('.q-title', el), add: $('.q-add', el) }];
   }));
 
   function render() {
@@ -324,6 +357,7 @@
     document.documentElement.style.setProperty('--accent', ws.color);
     renderHeader();
     renderTabs();
+    renderNames();
     renderBoard();
     renderDone();
     ui.day = todayStr();
@@ -342,9 +376,25 @@
     const overdue = ws.tasks.filter((t) => t.due && t.due < today).length;
     const summary = $('#summary');
     summary.textContent = first === 0
-      ? (ws.tasks.length ? 'Nothing to do first. Nice ✨' : 'A clean board. What matters today?')
-      : `${first} ${first === 1 ? 'task' : 'tasks'} to do first today`;
+      ? (ws.tasks.length ? `Nothing ${ws.quadrantNames.do ? `in “${ws.quadrantNames.do}”` : 'to do first'}. Nice ✨` : 'A clean board. What matters today?')
+      : `${first} ${first === 1 ? 'task' : 'tasks'} ${ws.quadrantNames.do ? `in “${ws.quadrantNames.do}”` : 'to do first'} today`;
     if (overdue) summary.append(' · ', h('span', { class: 'overdue', text: `${overdue} overdue` }));
+  }
+
+  /** Quadrant names are per workspace: refresh every place that shows them. */
+  function renderNames() {
+    const ws = activeWs();
+    for (const q of QUADRANTS) {
+      const name = qName(ws, q.id);
+      const { title, add } = quadEls[q.id];
+      title.textContent = name;
+      add.setAttribute('aria-label', `Add task to ${name}`);
+      const pick = $(`.q-pick label[data-q="${q.id}"]`);
+      $('.q-name', pick).textContent = name;
+      pick.title = `${name} (Alt+${Q_IDS.indexOf(q.id) + 1})`;
+    }
+    $('#batch-open').title = `Clear ${qName(ws, 'offload')} tasks one after another`;
+    $('#review-open').title = `Go through ${qName(ws, 'review')} one task at a time`;
   }
 
   function renderTabs() {
@@ -370,17 +420,22 @@
   function noteEl(t, today) {
     const info = t.due ? dueInfo(t.due, today) : null;
     const hasNotes = !!t.notes.trim();
+    const askWhen = t.quadrant === 'plan' && !t.due; // planning needs a date
+    const stale = isStale(t);
     const cls = ['note'];
-    if (info || hasNotes) cls.push('has-meta');
+    if (info || hasNotes || askWhen) cls.push('has-meta');
+    if (stale) cls.push('is-stale');
     if (info && info.kind === 'overdue') cls.push('is-overdue');
     if (t.id === ui.justAdded) cls.push('pop');
     const el = h('article', {
       class: cls.join(' '), tabIndex: 0, dataset: { id: t.id },
-      'aria-label': `${t.title}${info ? `, ${info.label}` : ''}. Press Enter for details.`,
+      'aria-label': `${t.title}${info ? `, ${info.label}` : ''}${stale ? `, waiting for ${daysIn(t)} days` : ''}. Press Enter for details.`,
+      title: stale ? `Here for ${daysIn(t)} days. Time to decide?` : null,
     },
       h('div', { class: 'note-title', text: t.title }),
-      (info || hasNotes) && h('div', { class: 'note-meta' },
+      (info || hasNotes || askWhen) && h('div', { class: 'note-meta' },
         info && h('span', { class: `due due-${info.kind}`, text: info.label }),
+        askWhen && h('button', { class: 'when-hint', type: 'button', text: 'When?', title: 'Set a date', 'aria-label': `Set a date for “${t.title}”` }),
         hasNotes && h('span', { class: 'has-notes', title: 'Has notes' }, icon('notes'))),
       h('button', { class: 'note-check', type: 'button', title: 'Mark as done', 'aria-label': `Mark “${t.title}” as done` }, icon('check')));
     el.style.setProperty('--tilt', tiltFor(t.id));
@@ -391,7 +446,7 @@
      at its own level and steps down only if its notes would not fit; if they
      still do not fit at the smallest level, the quadrant scrolls. */
   const DENSITIES = ['normal', 'small', 'compact'];
-  const BASE_DENSITY = { do: 'normal', schedule: 'normal', delegate: 'small', eliminate: 'compact' };
+  const BASE_DENSITY = { do: 'normal', plan: 'normal', offload: 'small', review: 'compact' };
   const NOTE_VARS = ['--n-w', '--n-min-h', '--n-fs', '--n-pad', '--n-badge'];
 
   const overflows = (list) => list.scrollHeight > list.clientHeight + 1;
@@ -456,7 +511,7 @@
   function composerEl(q) {
     const input = h('textarea', {
       class: 'composer-input', rows: 2, maxLength: 300,
-      placeholder: 'Type a task, press Enter', 'aria-label': `New task in ${Q_TITLE[q]}`,
+      placeholder: 'Type a task, press Enter', 'aria-label': `New task in ${qName(activeWs(), q)}`,
     });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -489,6 +544,14 @@
       const { list, count } = quadEls[q.id];
       const tasks = ws.tasks.filter((t) => t.quadrant === q.id);
       count.textContent = String(tasks.length);
+      if (q.id === 'offload') $('#batch-open').hidden = !tasks.length;
+      if (q.id === 'review') {
+        const staleCount = tasks.filter(isStale).length;
+        $('#review-open').hidden = !tasks.length;
+        $('#review-stale').hidden = !staleCount;
+        $('#review-stale').textContent = String(staleCount);
+        $('#review-stale').title = `${staleCount} waiting more than ${REVIEW_STALE_DAYS} days`;
+      }
       const nodes = tasks.map((t) => noteEl(t, today));
       nodes.push(h('p', { class: 'empty', text: q.empty }));
       if (ui.composer === q.id) nodes.push(composerEl(q.id));
@@ -522,14 +585,14 @@
     $('#done-clear').disabled = !items.length;
     const list = $('#done-list');
     if (!items.length) {
-      list.replaceChildren(h('li', { class: 'done-empty', text: 'Nothing here yet. Tick off a task and it lands in this pile 🎉' }));
+      list.replaceChildren(h('li', { class: 'done-empty', text: 'Nothing here yet. Finished and dropped tasks land in this pile 🎉' }));
       return;
     }
     list.replaceChildren(...items.map((t) =>
-      h('li', { class: 'done-item', dataset: { id: t.id, q: t.quadrant } },
+      h('li', { class: `done-item${t.dropped ? ' dropped' : ''}`, dataset: { id: t.id, q: t.quadrant } },
         h('button', { class: 'done-main', type: 'button', title: 'Open details' },
           h('span', { class: 'done-title', text: t.title }),
-          h('span', { class: 'done-date', text: `Done ${fmtRelative(t.completedAt)} · ${Q_TITLE[t.quadrant]}` })),
+          h('span', { class: 'done-date', text: `${t.dropped ? 'Dropped' : 'Done'} ${fmtRelative(t.completedAt)} · ${qName(ws, t.quadrant)}` })),
         h('button', { class: 'done-act restore', type: 'button', title: 'Restore to board', 'aria-label': `Restore “${t.title}”` }, icon('restore')),
         h('button', { class: 'done-act del', type: 'button', title: 'Delete permanently', 'aria-label': `Delete “${t.title}” permanently` }, icon('trash')))));
   }
@@ -540,36 +603,43 @@
   function addTask(quadrant, title) {
     title = title.trim().slice(0, 300);
     if (!title) return;
-    const task = { id: uid(), title, notes: '', due: null, quadrant, createdAt: Date.now() };
+    const now = Date.now();
+    const task = { id: uid(), title, notes: '', due: null, quadrant, createdAt: now, quadrantSince: now };
     activeWs().tasks.push(task);
     ui.justAdded = task.id;
     commit();
   }
 
-  function completeTask(id) {
+  /** quiet: no fly animation, toast or undo snapshot (used inside the Batch and Review modes). */
+  function completeTask(id, { quiet = false, dropped = false } = {}) {
     const found = findTask(id);
     if (!found || found.done) return;
-    flyToDone(found.ws.id === state.activeId ? noteById(id) : null);
-    snapshot();
+    if (!quiet) {
+      flyToDone(found.ws.id === state.activeId ? noteById(id) : null);
+      snapshot();
+    }
     const { ws, task } = found;
     ws.tasks.splice(ws.tasks.indexOf(task), 1);
     task.completedAt = Date.now();
+    if (dropped) task.dropped = true;
     ws.done.push(task);
     commit();
-    toast('Nice one! Task done 🎉', { undoable: true });
+    if (quiet) bumpDone(); else toast('Nice one! Task done 🎉', { undoable: true });
   }
 
-  function restoreTask(id) {
+  function restoreTask(id, { quiet = false } = {}) {
     const found = findTask(id);
     if (!found || !found.done) return;
-    snapshot();
+    if (!quiet) snapshot();
     const { ws, task } = found;
     ws.done.splice(ws.done.indexOf(task), 1);
     delete task.completedAt;
+    delete task.dropped;
+    task.quadrantSince = Date.now(); // it re-enters its quadrant
     ws.tasks.push(task);
     ui.justAdded = task.id;
     commit();
-    toast(`Restored to ${Q_TITLE[task.quadrant]}`, { undoable: true });
+    if (!quiet) toast(`Restored to ${qName(ws, task.quadrant)}`, { undoable: true });
   }
 
   function deleteTask(id) {
@@ -652,6 +722,8 @@
   board.addEventListener('click', (e) => {
     const check = e.target.closest('.note-check');
     if (check) { completeTask(check.closest('.note').dataset.id); return; }
+    const when = e.target.closest('.when-hint');
+    if (when) { openDetail(when.closest('.note').dataset.id, { focusDue: true }); return; }
     const add = e.target.closest('.q-add');
     if (add) {
       ui.composer = add.closest('.quadrant').dataset.q;
@@ -669,7 +741,7 @@
   board.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || drag) return;
     const note = e.target.closest('.note');
-    if (!note || e.target.closest('.note-check')) return;
+    if (!note || e.target.closest('.note-check, .when-hint')) return;
     drag = { id: note.dataset.id, note, x0: e.clientX, y0: e.clientY, active: false };
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd);
@@ -815,7 +887,7 @@
     while (next && !next.classList.contains('note')) next = next.nextElementSibling;
 
     ws.tasks.splice(ws.tasks.indexOf(task), 1);
-    task.quadrant = quad.dataset.q;
+    setQuadrant(task, quad.dataset.q);
     const idx = next ? ws.tasks.findIndex((t) => t.id === next.dataset.id) : -1;
     if (idx >= 0) ws.tasks.splice(idx, 0, task); else ws.tasks.push(task);
     commit();
@@ -879,7 +951,7 @@
     el.style.height = `${el.scrollHeight + 2}px`;
   }
 
-  function openDetail(id) {
+  function openDetail(id, { focusDue = false } = {}) {
     const found = findTask(id);
     if (!found) return;
     const { ws, task, done } = found;
@@ -890,15 +962,23 @@
     dDue.value = task.due || '';
     dDone.checked = done;
     $('#d-due-clear').hidden = !task.due;
-    for (const r of $$('input[name="d-q"]', detail)) r.checked = r.value === task.quadrant;
+    for (const r of $$('input[name="d-q"]', detail)) {
+      r.checked = r.value === task.quadrant;
+      r.nextElementSibling.textContent = qName(ws, r.value);
+    }
     dWs.replaceChildren(...state.workspaces.map((w) => h('option', { value: w.id, text: `${w.emoji} ${w.name}`, selected: w.id === ws.id })));
     $('#d-ws-field').hidden = state.workspaces.length < 2;
     $('#d-meta').textContent = done
-      ? `Completed ${fmtRelative(task.completedAt)}`
+      ? `${task.dropped ? 'Dropped' : 'Completed'} ${fmtRelative(task.completedAt)}`
       : `Added ${fmtRelative(task.createdAt)}`;
     if (!detail.open) detail.showModal();
     autoGrow(dTitle);
-    (task.title ? $('.btn.primary', detail) : dTitle).focus();
+    if (focusDue) {
+      dDue.focus();
+      try { dDue.showPicker(); } catch { /* the focused field is enough */ }
+    } else {
+      (task.title ? $('.btn.primary', detail) : dTitle).focus();
+    }
   }
 
   /** Apply an edit to the task currently open in the detail dialog. */
@@ -931,7 +1011,7 @@
   detail.addEventListener('change', (e) => {
     if (e.target.name !== 'd-q') return;
     detail.dataset.q = e.target.value;
-    editDetail((t) => { t.quadrant = e.target.value; });
+    editDetail((t) => setQuadrant(t, e.target.value));
   });
   dWs.addEventListener('change', () => {
     const id = ui.detailId;
@@ -957,6 +1037,134 @@
     const el = id && noteById(id);
     if (el) el.focus({ preventScroll: true });
   });
+
+  /* ------------------------------------------------------------------ *
+   * Batch mode: clear "Get off the plate" tasks one after another
+   * ------------------------------------------------------------------ */
+  const batch = $('#batch');
+  let batchIds = [];
+
+  function openBatch() {
+    const ws = activeWs();
+    batchIds = ws.tasks.filter((t) => t.quadrant === 'offload').map((t) => t.id);
+    if (!batchIds.length) return;
+    $('#batch-title').textContent = qName(ws, 'offload');
+    renderBatch();
+    batch.showModal();
+    const first = $('input:not(:checked)', batch);
+    if (first) first.focus();
+  }
+
+  function renderBatch() {
+    const today = todayStr();
+    let left = 0;
+    const rows = batchIds.map((id) => {
+      const found = findTask(id);
+      if (!found) return null;
+      const { task, done } = found;
+      if (!done) left++;
+      const info = task.due && !done ? dueInfo(task.due, today) : null;
+      return h('li', null,
+        h('label', { class: `batch-row${done ? ' checked' : ''}` },
+          h('input', { type: 'checkbox', checked: done, dataset: { id } }),
+          h('span', { class: 'box', 'aria-hidden': 'true' }, icon('check')),
+          h('span', { class: 'batch-text', text: task.title }),
+          info && h('span', { class: `due due-${info.kind}`, text: info.label })));
+    }).filter(Boolean);
+    $('#batch-list').replaceChildren(...rows);
+    $('#batch-progress').textContent = left === 0 ? 'All clear. Nicely done 🎉' : `${left} of ${rows.length} left`;
+  }
+
+  $('#batch-list').addEventListener('change', (e) => {
+    const { id } = e.target.dataset;
+    if (!id) return;
+    if (e.target.checked) completeTask(id, { quiet: true }); else restoreTask(id, { quiet: true });
+    renderBatch();
+    // keep the keyboard flow going: land on the next open task
+    const next = $('input:not(:checked)', batch) || $('.btn.primary', batch);
+    next.focus();
+  });
+  $('#batch-open').addEventListener('click', openBatch);
+  batch.addEventListener('click', (e) => { if (e.target === batch) batch.close(); });
+  batch.addEventListener('close', flush);
+
+  /* ------------------------------------------------------------------ *
+   * Review mode: one task at a time. Keep, move or drop.
+   * ------------------------------------------------------------------ */
+  const review = $('#review-mode');
+  let reviewQueue = [];
+  let reviewAt = 0;
+
+  function openReview() {
+    const ws = activeWs();
+    reviewQueue = ws.tasks.filter((t) => t.quadrant === 'review')
+      .sort((a, b) => a.quadrantSince - b.quadrantSince) // longest-waiting first
+      .map((t) => t.id);
+    if (!reviewQueue.length) return;
+    reviewAt = 0;
+    $('#rv-heading').textContent = qName(ws, 'review');
+    $('#rv-targets').replaceChildren(...Q_IDS.filter((q) => q !== 'review').map((q) =>
+      h('button', { type: 'button', class: 'rv-target', dataset: { q }, text: qName(ws, q) })));
+    review.showModal();
+    renderReview();
+  }
+
+  function reviewTask() {
+    // skip anything that changed elsewhere since the session started
+    while (reviewAt < reviewQueue.length) {
+      const found = findTask(reviewQueue[reviewAt]);
+      if (found && !found.done && found.task.quadrant === 'review') return found.task;
+      reviewAt++;
+    }
+    return null;
+  }
+
+  function renderReview() {
+    const task = reviewTask();
+    $('#rv-card').hidden = !task;
+    $('#rv-actions').hidden = !task;
+    $('#rv-empty').hidden = !!task;
+    if (!task) {
+      $('#rv-progress').textContent = 'Nothing left to decide';
+      $('.btn.primary', review).focus();
+      return;
+    }
+    const days = daysIn(task);
+    $('#rv-progress').textContent = `${reviewAt + 1} of ${reviewQueue.length}`;
+    $('#rv-age').textContent = days < 1 ? 'Added to this quadrant today' : `Waiting here for ${days} ${days === 1 ? 'day' : 'days'}`;
+    $('#rv-age').classList.toggle('stale', isStale(task));
+    $('#rv-title').textContent = task.title;
+    $('#rv-notes').textContent = task.notes.trim();
+    $('#rv-notes').hidden = !task.notes.trim();
+    const info = task.due ? dueInfo(task.due, todayStr()) : null;
+    $('#rv-due').hidden = !info;
+    if (info) { $('#rv-due').className = `due due-${info.kind}`; $('#rv-due').textContent = info.label; }
+    const card = $('#rv-card');
+    card.classList.remove('pop');
+    void card.offsetWidth;
+    card.classList.add('pop');
+    $('#rv-keep').focus();
+  }
+
+  function reviewDecide(fn) {
+    const task = reviewTask();
+    if (!task) return;
+    fn(task);
+    reviewAt++;
+    renderReview();
+  }
+  $('#rv-keep').addEventListener('click', () => reviewDecide((task) => {
+    task.quadrantSince = Date.now(); // a fresh decision resets its age
+    commit();
+  }));
+  $('#rv-targets').addEventListener('click', (e) => {
+    const btn = e.target.closest('.rv-target');
+    if (btn) reviewDecide((task) => { setQuadrant(task, btn.dataset.q); commit(); });
+  });
+  $('#rv-drop').addEventListener('click', () => reviewDecide((task) => completeTask(task.id, { quiet: true, dropped: true })));
+  $('#review-open').addEventListener('click', openReview);
+  review.addEventListener('click', (e) => { if (e.target === review) review.close(); });
+  review.addEventListener('close', flush);
 
   /* ------------------------------------------------------------------ *
    * Done drawer
@@ -1071,6 +1279,10 @@
     $('#ws-dialog-title').textContent = isNew ? 'New workspace' : 'Edit workspace';
     $('#w-name').value = ws.name;
     $('#w-emoji-custom').value = WS_EMOJIS.includes(ws.emoji) ? '' : ws.emoji;
+    for (const input of $$('.w-qname', wsDialog)) {
+      input.value = ws.quadrantNames[input.dataset.q] || '';
+      input.placeholder = Q_TITLE[input.dataset.q];
+    }
     syncWsDialog();
     wsDialog.showModal();
     $('#w-name').focus();
@@ -1092,6 +1304,7 @@
     $('#w-right').disabled = i === state.workspaces.length - 1;
     $('#w-delete').disabled = state.workspaces.length < 2;
     $('#w-delete').title = state.workspaces.length < 2 ? 'You need at least one workspace' : '';
+    $('#w-qreset').disabled = !Object.keys(ws.quadrantNames).length;
   }
 
   function editWs(fn) {
@@ -1133,6 +1346,21 @@
   $('#w-right').addEventListener('click', () => moveWs(1));
   wsDialog.addEventListener('click', (e) => { if (e.target === wsDialog) wsDialog.close(); });
   wsDialog.addEventListener('close', () => { ui.wsEditId = null; flush(); });
+
+  // Quadrant names for this workspace only. An empty field means "use the default".
+  $('#w-qnames').addEventListener('input', (e) => {
+    const input = e.target.closest('.w-qname');
+    if (!input) return;
+    const name = input.value.trim().slice(0, QUADRANT_NAME_MAX);
+    editWs((ws) => {
+      if (name && name !== Q_TITLE[input.dataset.q]) ws.quadrantNames[input.dataset.q] = name;
+      else delete ws.quadrantNames[input.dataset.q];
+    });
+  });
+  $('#w-qreset').addEventListener('click', () => {
+    for (const input of $$('.w-qname', wsDialog)) input.value = '';
+    editWs((ws) => { ws.quadrantNames = {}; });
+  });
 
   $('#w-delete').addEventListener('click', async () => {
     const ws = state.workspaces.find((w) => w.id === ui.wsEditId);
@@ -1196,7 +1424,7 @@
     const { version, theme, activeId, workspaces } = state;
     const payload = {
       app: 'eisenhower-tabs',
-      format: 1,
+      format: DATA_VERSION,
       exportedAt: new Date().toISOString(),
       data: { version, theme, activeId, workspaces },
     };
@@ -1317,6 +1545,6 @@
     }
     applyTheme();
     render();
-    if (!stored) save();
+    if (!stored || stored.version !== DATA_VERSION) save(); // also persists a migration right away
   })();
 })();
