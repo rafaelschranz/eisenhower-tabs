@@ -5,6 +5,8 @@
    * Constants
    * ------------------------------------------------------------------ */
   const STORAGE_KEY = 'eisenhower.v1';
+  const LOG_KEY = 'eisenhower.log.v1';         // completion log, kept apart from the boards
+  const WEATHER_KEY = 'eisenhower.weather.v1'; // last weather reading
   const THEME_KEY = 'eisenhower.theme';
   const TAB_ID = uid();
 
@@ -18,7 +20,7 @@
   const Q_TITLE = Object.fromEntries(QUADRANTS.map((q) => [q.id, q.title]));
   /** Quadrant ids used before the rename; mapped on load and on import. */
   const LEGACY_QUADRANTS = { schedule: 'plan', delegate: 'offload', eliminate: 'review' };
-  const DATA_VERSION = 2;
+  const DATA_VERSION = 3;
   // Tomorrow plus the seven days after it show their weekday ("Thu 19 Nov"); later dates show "26 Nov".
   const SOON_DAYS = 8;
   const REVIEW_STALE_DAYS = 14; // tasks sitting in Review longer than this look faded
@@ -142,13 +144,18 @@
   const hasChromeStorage = typeof chrome !== 'undefined' && !!(chrome.storage && chrome.storage.local);
 
   const store = {
-    async load() {
-      if (hasChromeStorage) return (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+    /** One read for everything the first paint needs. */
+    async load(keys) {
+      if (hasChromeStorage) return chrome.storage.local.get(keys);
+      const out = {};
+      for (const key of keys) {
+        try { const v = JSON.parse(localStorage.getItem(key)); if (v != null) out[key] = v; } catch { /* skip */ }
+      }
+      return out;
     },
-    async save(data) {
-      if (hasChromeStorage) return chrome.storage.local.set({ [STORAGE_KEY]: data });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    async save(items) {
+      if (hasChromeStorage) return chrome.storage.local.set(items);
+      for (const [key, value] of Object.entries(items)) localStorage.setItem(key, JSON.stringify(value));
     },
   };
 
@@ -156,7 +163,9 @@
    * State
    * ------------------------------------------------------------------ */
   let state = null;
-  let undoSnap = null;   // JSON snapshot taken before the last undoable action
+  let log = [];          // completion log: one entry per completed task, see logEntry()
+  let logDirty = false;
+  let undoSnap = null;   // snapshot ({ state, log }) taken before the last undoable action
   let snapFresh = false; // true between snapshot() and the commit() it belongs to
   let saveTimer = null;
   let rendering = false;
@@ -171,7 +180,7 @@
   };
 
   function newWorkspace(name, emoji, color) {
-    return { id: uid(), name, emoji, color, quadrantNames: {}, tasks: [], done: [] };
+    return { id: uid(), name, emoji, color, quadrantNames: {}, sort: {}, tasks: [], done: [] };
   }
 
   function defaultState() {
@@ -180,7 +189,18 @@
       newWorkspace('Studies', '📚', WS_COLORS[2]),
       newWorkspace('Personal', '🏡', WS_COLORS[5]),
     ];
-    return { version: DATA_VERSION, theme: null, activeId: workspaces[0].id, workspaces };
+    return { version: DATA_VERSION, theme: null, activeId: workspaces[0].id, weather: { enabled: false, location: null }, workspaces };
+  }
+
+  /** Timestamps may arrive as numbers, ISO strings or plain dates (a date without a time counts as noon). */
+  function toTime(v) {
+    if (Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      if (DATE_RE.test(v)) { const d = parseDay(v); d.setHours(12); return d.getTime(); }
+      const t = Date.parse(v);
+      if (Number.isFinite(t)) return t;
+    }
+    return Date.now();
   }
 
   /** Validates anything coming from storage or a backup file. Throws if unusable. */
@@ -211,7 +231,7 @@
         quadrantSince: num(t.quadrantSince), // when it entered its quadrant; "now" for older data
       };
       if (done) {
-        out.completedAt = num(t.completedAt);
+        out.completedAt = toTime(t.completedAt);
         if (t.dropped === true) out.dropped = true;
       }
       return out;
@@ -226,6 +246,23 @@
       }
       return out;
     };
+    const sort = (raw) => {
+      const out = {};
+      if (!raw || typeof raw !== 'object') return out;
+      for (const [key, value] of Object.entries(raw)) {
+        const id = LEGACY_QUADRANTS[key] || key;
+        if (Q_IDS.includes(id) && value === 'manual') out[id] = 'manual'; // "auto" is the default and is not stored
+      }
+      return out;
+    };
+    const weather = (raw) => {
+      const loc = raw && raw.location;
+      const ok = loc && typeof loc === 'object' && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude) && str(loc.name, 120).trim();
+      return {
+        enabled: !!(raw && raw.enabled === true),
+        location: ok ? { name: str(loc.name, 120).trim(), latitude: loc.latitude, longitude: loc.longitude, timezone: str(loc.timezone, 60) || 'auto' } : null,
+      };
+    };
     const list = (arr, done) => (Array.isArray(arr) ? arr : []).map((t) => task(t, done)).filter(Boolean);
 
     const workspaces = src.workspaces
@@ -236,6 +273,7 @@
         emoji: str(w.emoji, 8).trim() || '📋',
         color: typeof w.color === 'string' && COLOR_RE.test(w.color) ? w.color : WS_COLORS[i % WS_COLORS.length],
         quadrantNames: names(w.quadrantNames),
+        sort: sort(w.sort),
         tasks: list(w.tasks, false),
         done: list(w.done, true),
       }));
@@ -245,8 +283,65 @@
       version: DATA_VERSION,
       theme: src.theme === 'dark' || src.theme === 'light' ? src.theme : null,
       activeId: workspaces.some((w) => w.id === src.activeId) ? src.activeId : workspaces[0].id,
+      weather: weather(src.weather),
       workspaces,
     };
+  }
+
+  /* Completion log ------------------------------------------------------ *
+   * One entry per completed task. It outlives the done pile: clearing or
+   * deleting done tasks keeps the entries, restoring a task removes its entry. */
+  const logEntry = (task, wsId) => ({
+    id: task.id, title: task.title, wsId, quadrant: task.quadrant, createdAt: task.createdAt, completedAt: task.completedAt,
+  });
+  function normalizeLog(raw) {
+    const arr = Array.isArray(raw) ? raw : raw && Array.isArray(raw.entries) ? raw.entries : [];
+    const out = [];
+    for (const e of arr) {
+      if (!e || typeof e !== 'object' || typeof e.id !== 'string' || typeof e.title !== 'string') continue;
+      const quadrant = LEGACY_QUADRANTS[e.quadrant] || e.quadrant;
+      const completedAt = toTime(e.completedAt);
+      out.push({
+        id: e.id, title: e.title.slice(0, 300), wsId: typeof e.wsId === 'string' ? e.wsId : '',
+        quadrant: Q_IDS.includes(quadrant) ? quadrant : 'do',
+        createdAt: Number.isFinite(e.createdAt) ? e.createdAt : completedAt, completedAt,
+      });
+    }
+    return out.sort((a, b) => a.completedAt - b.completedAt);
+  }
+  /** First run, or a backup from before the log existed: build it from the done piles. */
+  function backfillLog(data) {
+    const out = [];
+    for (const ws of data.workspaces) {
+      for (const t of ws.done) {
+        if (t.dropped) continue;
+        const at = new Date(t.completedAt);
+        const noTime = at.getHours() + at.getMinutes() + at.getSeconds() + at.getMilliseconds() === 0;
+        out.push({ ...logEntry(t, ws.id), completedAt: noTime ? at.setHours(12) : t.completedAt });
+      }
+    }
+    return out.sort((a, b) => a.completedAt - b.completedAt);
+  }
+  function logAdd(task, wsId) { log.push(logEntry(task, wsId)); logDirty = true; }
+  function logRemove(id) {
+    const i = log.findLastIndex((e) => e.id === id);
+    if (i >= 0) { log.splice(i, 1); logDirty = true; }
+  }
+
+  /* Order inside a quadrant --------------------------------------------- *
+   * "auto" (the default) sorts by date; "manual" keeps the dragged order.   */
+  const sortMode = (ws, q) => (ws.sort && ws.sort[q] === 'manual' ? 'manual' : 'auto');
+  /** Overdue and dated tasks by due date (oldest first), then undated ones by creation time. */
+  function byDate(a, b) {
+    if (a.due && b.due) return a.due < b.due ? -1 : a.due > b.due ? 1 : a.createdAt - b.createdAt;
+    if (a.due) return -1;
+    if (b.due) return 1;
+    return a.createdAt - b.createdAt;
+  }
+  /** A quadrant's tasks in the order they are shown. */
+  function quadTasks(ws, q) {
+    const list = ws.tasks.filter((t) => t.quadrant === q);
+    return sortMode(ws, q) === 'manual' ? list : list.sort(byDate);
   }
 
   const activeWs = () => state.workspaces.find((w) => w.id === state.activeId) || state.workspaces[0];
@@ -282,13 +377,15 @@
     if (saveTimer == null) return;
     clearTimeout(saveTimer);
     saveTimer = null;
-    store.save({ ...state, writer: TAB_ID, savedAt: Date.now() })
+    const items = { [STORAGE_KEY]: { ...state, writer: TAB_ID, savedAt: Date.now() } };
+    if (logDirty) { items[LOG_KEY] = { version: 1, writer: TAB_ID, entries: log }; logDirty = false; }
+    store.save(items)
       .catch(() => toast('Could not save your changes. Storage may be full.'));
   }
 
   /** Call before mutating state for an action that should offer "Undo". */
   function snapshot() {
-    undoSnap = JSON.stringify(state);
+    undoSnap = { state: JSON.stringify(state), log: log.slice() };
     snapFresh = true;
   }
 
@@ -302,7 +399,9 @@
 
   function undo() {
     if (!undoSnap) return;
-    state = JSON.parse(undoSnap);
+    state = JSON.parse(undoSnap.state);
+    log = undoSnap.log;
+    logDirty = true;
     undoSnap = null;
     closeDialogs();
     hideToast();
@@ -365,7 +464,7 @@
   const board = $('#board');
   const quadEls = Object.fromEntries(QUADRANTS.map((q) => {
     const el = $(`.quadrant[data-q="${q.id}"]`);
-    return [q.id, { el, list: $('.note-list', el), count: $('.q-count', el), title: $('.q-title', el), add: $('.q-add', el) }];
+    return [q.id, { el, list: $('.note-list', el), count: $('.q-count', el), title: $('.q-title', el), add: $('.q-add', el), sort: $('.q-sort', el) }];
   }));
 
   function render() {
@@ -383,8 +482,23 @@
   function renderHeader() {
     const now = new Date();
     const hr = now.getHours();
-    $('#greeting').textContent =
-      hr >= 5 && hr < 12 ? 'Good morning ☀️' : hr >= 12 && hr < 18 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
+    const [hello, emoji] = hr >= 5 && hr < 12 ? ['Good morning', '☀️'] : hr >= 12 && hr < 18 ? ['Good afternoon', '🌤️'] : ['Good evening', '🌙'];
+    const wx = weatherNow(); // null unless weather is on, allowed and a reading for the chosen place is cached
+    $('#greet-text').textContent = hello;
+    $('#wx-emoji').textContent = wx ? wx.emoji : emoji;
+    $('#wx-temp').textContent = wx ? `${Math.round(wx.temp) || 0}°` : '';
+    const wxEl = $('#wx');
+    wxEl.classList.toggle('live', !!wx);
+    if (wx) {
+      wxEl.tabIndex = 0;
+      wxEl.setAttribute('aria-label', `${wx.text}, ${Math.round(wx.temp) || 0} degrees in ${wx.place}`);
+      $('#wx-tip-place').textContent = wx.place;
+      $('#wx-tip-cond').textContent = `${wx.text}, ${Math.round(wx.temp) || 0} °C`;
+      $('#wx-tip-time').textContent = `Updated ${new Date(wx.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      wxEl.removeAttribute('tabindex');
+      wxEl.removeAttribute('aria-label');
+    }
     $('#today').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
     const ws = activeWs();
@@ -459,31 +573,27 @@
     return el;
   }
 
-  /* Density: notes have one fixed size per density level. Each quadrant starts
-     at its own level and steps down only if its notes would not fit; if they
-     still do not fit at the smallest level, the quadrant scrolls. */
-  const DENSITIES = ['normal', 'small', 'compact'];
-  const BASE_DENSITY = { do: 'normal', plan: 'normal', offload: 'small', review: 'compact' };
-  const NOTE_VARS = ['--n-w', '--n-min-h', '--n-fs', '--n-pad', '--n-badge'];
-
-  const overflows = (list) => list.scrollHeight > list.clientHeight + 1;
-  function updateFade(list) {
-    list.parentElement.classList.toggle('more', list.scrollHeight - list.scrollTop - list.clientHeight > 1);
-  }
-  function fitList(q) {
-    const { list } = quadEls[q];
-    const scroll = list.scrollTop;
-    let i = DENSITIES.indexOf(BASE_DENSITY[q]);
-    list.dataset.density = DENSITIES[i];
-    while (i < DENSITIES.length - 1 && overflows(list)) list.dataset.density = DENSITIES[++i];
-    list.scrollTop = scroll;
-    updateFade(list);
-  }
-  const sizeLists = () => { for (const q of QUADRANTS) fitList(q.id); };
+  /* Overflow: a quadrant with more notes than fit scrolls. A fade and a
+     "+N more" chip show that there is more below. */
   for (const q of QUADRANTS) {
-    const { list } = quadEls[q.id];
+    const { el, list } = quadEls[q.id];
+    const more = h('button', { class: 'q-more', type: 'button', hidden: true, title: 'Scroll down' });
+    more.addEventListener('click', () => list.scrollBy({ top: list.clientHeight * 0.8, behavior: reducedMotion() ? 'auto' : 'smooth' }));
+    el.append(more);
+    quadEls[q.id].more = more;
     list.addEventListener('scroll', () => updateFade(list), { passive: true });
   }
+  function updateFade(list) {
+    const quad = list.parentElement;
+    const bottom = list.scrollTop + list.clientHeight;
+    const hidden = list.scrollHeight - bottom > 1
+      ? $$('.note', list).filter((n) => n.offsetTop + n.offsetHeight / 2 > bottom).length : 0;
+    quad.classList.toggle('more', list.scrollHeight - bottom > 1);
+    const more = quadEls[quad.dataset.q].more;
+    more.hidden = !hidden;
+    more.textContent = `+${hidden} more`;
+  }
+  const sizeLists = () => { for (const q of QUADRANTS) updateFade(quadEls[q.id].list); };
 
   /* FLIP: remember where notes are, change the DOM, then glide them into place. */
   function noteCenters() {
@@ -512,12 +622,10 @@
   /** A fixed-position copy of a note, used for exit animations after the real one is gone. */
   function ghostOf(note) {
     const r = note.getBoundingClientRect();
-    const cs = getComputedStyle(note);
     const ghost = note.cloneNode(true);
     ghost.className = 'note ghost';
     ghost.removeAttribute('tabindex');
     ghost.dataset.q = note.closest('[data-q]').dataset.q;
-    for (const v of NOTE_VARS) ghost.style.setProperty(v, cs.getPropertyValue(v));
     Object.assign(ghost.style, {
       left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`,
     });
@@ -559,8 +667,9 @@
     rendering = true;
     for (const q of QUADRANTS) {
       const { list, count } = quadEls[q.id];
-      const tasks = ws.tasks.filter((t) => t.quadrant === q.id);
+      const tasks = quadTasks(ws, q.id);
       count.textContent = String(tasks.length);
+      quadEls[q.id].sort.hidden = sortMode(ws, q.id) !== 'manual';
       if (q.id === 'offload') $('#batch-open').hidden = !tasks.length;
       if (q.id === 'review') {
         const staleCount = tasks.filter(isStale).length;
@@ -638,7 +747,7 @@
     const { ws, task } = found;
     ws.tasks.splice(ws.tasks.indexOf(task), 1);
     task.completedAt = Date.now();
-    if (dropped) task.dropped = true;
+    if (dropped) task.dropped = true; else logAdd(task, ws.id); // dropping is a decision, not a completion
     ws.done.push(task);
     commit();
     if (quiet) bumpDone(); else toast('Nice one! Task done 🎉', { undoable: true });
@@ -652,6 +761,7 @@
     ws.done.splice(ws.done.indexOf(task), 1);
     delete task.completedAt;
     delete task.dropped;
+    logRemove(task.id);
     task.quadrantSince = Date.now(); // it re-enters its quadrant
     ws.tasks.push(task);
     ui.justAdded = task.id;
@@ -741,6 +851,12 @@
     if (check) { completeTask(check.closest('.note').dataset.id); return; }
     const when = e.target.closest('.when-hint');
     if (when) { openDetail(when.closest('.note').dataset.id, { focusDue: true }); return; }
+    const chip = e.target.closest('.q-sort');
+    if (chip) { // back to date order; renderBoard glides the notes into place
+      delete activeWs().sort[chip.closest('.quadrant').dataset.q];
+      commit();
+      return;
+    }
     const add = e.target.closest('.q-add');
     if (add) {
       ui.composer = add.closest('.quadrant').dataset.q;
@@ -773,8 +889,10 @@
     const list = note.parentElement;
     const left = list.getBoundingClientRect().left + note.offsetLeft - list.scrollLeft;
     const top = list.getBoundingClientRect().top + note.offsetTop - list.scrollTop;
-    const cs = getComputedStyle(note);
-    for (const v of NOTE_VARS) note.style.setProperty(v, cs.getPropertyValue(v));
+    const ws = activeWs();
+    drag.tasks = new Map(ws.tasks.map((t) => [t.id, t]));
+    drag.task = drag.tasks.get(drag.id);
+    if (!drag.task) { cancelDrag(); return false; }
     drag.placeholder = h('div', { class: 'note-placeholder' });
     drag.placeholder.style.height = `${note.offsetHeight}px`;
     note.before(drag.placeholder);
@@ -834,11 +952,17 @@
 
     quad.classList.add('drop-target');
     const list = drag.overList = $('.note-list', quad);
-    const before = insertionPoint(list, x, y) || $('.empty', list);
+    const q = quad.dataset.q;
+    // Another quadrant that sorts by date: show where the note will land, not where the pointer is.
+    const byItsDate = q !== drag.task.quadrant && sortMode(activeWs(), q) === 'auto';
+    const before = (byItsDate
+      ? $$('.note', list).find((n) => drag.tasks.has(n.dataset.id) && byDate(drag.task, drag.tasks.get(n.dataset.id)) < 0)
+      : insertionPoint(list, x, y)) || $('.empty', list);
     if (drag.placeholder.parentNode !== list || drag.placeholder.nextElementSibling !== before) {
       const was = noteCenters();
       const from = drag.placeholder.parentNode;
       list.insertBefore(drag.placeholder, before);
+      if (byItsDate) drag.placeholder.scrollIntoView({ block: 'nearest' });
       glideFrom(was); // neighbours move aside smoothly
       updateFade(list);
       if (from !== list) updateFade(from);
@@ -903,10 +1027,15 @@
     let next = d.placeholder.nextElementSibling;
     while (next && !next.classList.contains('note')) next = next.nextElementSibling;
 
-    ws.tasks.splice(ws.tasks.indexOf(task), 1);
-    setQuadrant(task, quad.dataset.q);
-    const idx = next ? ws.tasks.findIndex((t) => t.id === next.dataset.id) : -1;
-    if (idx >= 0) ws.tasks.splice(idx, 0, task); else ws.tasks.push(task);
+    const q = quad.dataset.q;
+    const shown = quadTasks(ws, q);
+    const order = shown.filter((t) => t !== task);
+    const idx = next ? order.findIndex((t) => t.id === next.dataset.id) : -1;
+    order.splice(idx >= 0 ? idx : order.length, 0, task);
+    // A new position inside its own quadrant means "keep my order" from now on.
+    if (q === task.quadrant && order.some((t, i) => t !== shown[i])) ws.sort[q] = 'manual';
+    setQuadrant(task, q);
+    ws.tasks = ws.tasks.filter((t) => t !== task && t.quadrant !== q).concat(order);
     commit();
 
     // Settle the note into its new slot.
@@ -1224,7 +1353,7 @@
 
   function openBatch() {
     const ws = activeWs();
-    batchIds = ws.tasks.filter((t) => t.quadrant === 'offload').map((t) => t.id);
+    batchIds = quadTasks(ws, 'offload').map((t) => t.id);
     if (!batchIds.length) return;
     $('#batch-title').textContent = qName(ws, 'offload');
     renderBatch();
@@ -1566,6 +1695,519 @@
   });
 
   /* ------------------------------------------------------------------ *
+   * Weather (optional, off by default). The only network use in the app:
+   * Open-Meteo, for a place picked in Settings. Never browser geolocation.
+   * ------------------------------------------------------------------ */
+  const WX_ORIGINS = ['https://geocoding-api.open-meteo.com/*', 'https://api.open-meteo.com/*'];
+  const WX_MAX_AGE = 30 * 60000;
+  const hasPermissions = typeof chrome !== 'undefined' && !!chrome.permissions;
+  let wxCache = null;    // { temp, code, isDay, at, lat, lon }
+  let wxAllowed = false; // host permission for the two Open-Meteo hosts
+  let wxBusy = false;
+
+  /** request = true asks the user (needs a click); false only checks. */
+  async function wxPermission(request) {
+    if (!hasPermissions) return true; // opened as a plain page during development
+    try { return await chrome.permissions[request ? 'request' : 'contains']({ origins: WX_ORIGINS }); } catch { return false; }
+  }
+
+  /** WMO weather interpretation codes, as used by Open-Meteo. */
+  function wxLook(code, isDay) {
+    const pick = (day, night, text) => ({ emoji: isDay ? day : night, text });
+    if (code === 0) return pick('☀️', '🌙', isDay ? 'Clear sky' : 'Clear night');
+    if (code === 1) return pick('🌤️', '🌙', 'Mostly clear');
+    if (code === 2) return pick('⛅', '☁️', 'Partly cloudy');
+    if (code === 3) return pick('☁️', '☁️', 'Cloudy');
+    if (code === 45 || code === 48) return pick('🌫️', '🌫️', 'Fog');
+    if (code >= 51 && code <= 57) return pick('🌦️', '🌧️', 'Drizzle');
+    if (code >= 61 && code <= 67) return pick('🌧️', '🌧️', 'Rain');
+    if (code >= 71 && code <= 77) return pick('❄️', '❄️', 'Snow');
+    if (code >= 80 && code <= 82) return pick('☔', '☔', 'Showers');
+    if (code === 85 || code === 86) return pick('🌨️', '🌨️', 'Snow showers');
+    if (code >= 95 && code <= 99) return pick('⛈️', '⛈️', 'Thunderstorm');
+    return pick('🌤️', '🌙', 'Weather');
+  }
+  function readWxCache(raw) {
+    return raw && Number.isFinite(raw.temp) && Number.isFinite(raw.code) && Number.isFinite(raw.at) ? raw : null;
+  }
+  const wxMatches = (loc) => !!wxCache && !!loc && wxCache.lat === loc.latitude && wxCache.lon === loc.longitude;
+
+  function weatherNow() {
+    const w = state.weather;
+    if (!w.enabled || !wxAllowed || !wxMatches(w.location)) return null;
+    return { ...wxLook(wxCache.code, wxCache.isDay), temp: wxCache.temp, at: wxCache.at, place: w.location.name };
+  }
+
+  /** Background refresh. Never throws and never blocks: on any failure the cached reading stays. */
+  async function refreshWeather(force = false) {
+    const loc = state && state.weather.enabled && state.weather.location;
+    if (!loc || !wxAllowed || wxBusy) return;
+    if (!force && wxMatches(loc) && Date.now() - wxCache.at < WX_MAX_AGE) return;
+    wxBusy = true;
+    try {
+      const url = new URL('https://api.open-meteo.com/v1/forecast');
+      url.search = new URLSearchParams({
+        latitude: loc.latitude, longitude: loc.longitude, current: 'temperature_2m,weather_code,is_day',
+        temperature_unit: 'celsius', timezone: loc.timezone || 'auto',
+      });
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000), credentials: 'omit' });
+      if (!res.ok) throw new Error('weather');
+      const cur = (await res.json()).current;
+      if (!cur || !Number.isFinite(cur.temperature_2m) || !Number.isFinite(cur.weather_code)) throw new Error('weather');
+      if (state.weather.location !== loc || !state.weather.enabled) return; // changed while we waited
+      wxCache = { temp: cur.temperature_2m, code: cur.weather_code, isDay: cur.is_day !== 0, at: Date.now(), lat: loc.latitude, lon: loc.longitude };
+      store.save({ [WEATHER_KEY]: wxCache }).catch(() => {});
+      renderHeader();
+      if (settings.open) syncSettings();
+    } catch { /* offline or blocked: keep what we have */ } finally { wxBusy = false; }
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Settings
+   * ------------------------------------------------------------------ */
+  const settings = $('#settings');
+  const wxToggle = $('#wx-toggle');
+  const wxQuery = $('#wx-query');
+  let wxSearchTimer = null;
+  let wxSearchSeq = 0;
+
+  function syncSettings() {
+    const w = state.weather;
+    const on = w.enabled && wxAllowed;
+    wxToggle.checked = on;
+    $('#wx-settings').hidden = !on;
+    const wx = weatherNow();
+    $('#wx-current').textContent = !w.location ? 'No place chosen yet. Search below and pick one.'
+      : `${w.location.name}${wx ? ` · ${wx.emoji} ${Math.round(wx.temp) || 0}°` : ''}`;
+    const n = log.length;
+    $('#stats-info').textContent = n
+      ? `${n} completed ${n === 1 ? 'task' : 'tasks'} recorded since ${fmtDay(new Date(log[0].completedAt))}. Resetting clears Insights; your boards and done piles stay as they are.`
+      : 'No completions recorded yet.';
+    $('#stats-reset').disabled = !n;
+  }
+  function openSettings() {
+    setMenu(false);
+    $('#wx-status').textContent = '';
+    $('#wx-results').replaceChildren();
+    wxQuery.value = '';
+    syncSettings();
+    settings.showModal();
+  }
+  $('#settings-open').addEventListener('click', openSettings);
+  settings.addEventListener('click', (e) => { if (e.target === settings) settings.close(); });
+  settings.addEventListener('close', flush);
+
+  wxToggle.addEventListener('change', async () => {
+    const status = $('#wx-status');
+    status.textContent = '';
+    if (wxToggle.checked) {
+      const ok = await wxPermission(true); // Chrome asks for the two Open-Meteo hosts here
+      if (!ok) {
+        wxToggle.checked = false;
+        status.textContent = 'Permission was not granted, so the weather stays off.';
+        return;
+      }
+      wxAllowed = true;
+      state.weather.enabled = true;
+      commit();
+      syncSettings();
+      refreshWeather();
+      if (!state.weather.location) wxQuery.focus();
+    } else {
+      state.weather.enabled = false;
+      wxAllowed = false;
+      commit();
+      syncSettings();
+      if (hasPermissions) chrome.permissions.remove({ origins: WX_ORIGINS }).catch(() => {}); // hand the permission back
+    }
+  });
+
+  async function searchPlaces() {
+    const q = wxQuery.value.trim();
+    const results = $('#wx-results');
+    const status = $('#wx-status');
+    const seq = ++wxSearchSeq;
+    if (q.length < 2) { results.replaceChildren(); status.textContent = ''; return; }
+    try {
+      const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+      url.search = new URLSearchParams({ name: q, count: 6, language: 'en', format: 'json' });
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000), credentials: 'omit' });
+      if (!res.ok) throw new Error('search');
+      const found = ((await res.json()).results || []).filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude) && r.name);
+      if (seq !== wxSearchSeq) return; // a newer search is on its way
+      status.textContent = found.length ? '' : `No place found for “${q}”.`;
+      results.replaceChildren(...found.map((r) => {
+        const where = [r.admin1, r.country].filter((part) => part && part !== r.name).join(', ');
+        const btn = h('button', { type: 'button', class: 'wx-result' },
+          h('span', { class: 'grow', text: r.name }), where && h('span', { class: 'hint', text: where }));
+        btn.addEventListener('click', () => {
+          state.weather.location = {
+            name: where ? `${r.name}, ${r.country || r.admin1}` : r.name,
+            latitude: r.latitude, longitude: r.longitude, timezone: r.timezone || 'auto',
+          };
+          commit();
+          results.replaceChildren();
+          wxQuery.value = '';
+          syncSettings();
+          refreshWeather(true);
+        });
+        return h('li', null, btn);
+      }));
+    } catch {
+      if (seq === wxSearchSeq) status.textContent = 'The place search could not be reached. Check your connection and try again.';
+    }
+  }
+  wxQuery.addEventListener('input', () => { clearTimeout(wxSearchTimer); wxSearchTimer = setTimeout(searchPlaces, 350); });
+  wxQuery.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault(); // Enter searches; it must not close the dialog
+    clearTimeout(wxSearchTimer);
+    searchPlaces();
+  });
+
+  $('#stats-reset').addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Reset statistics?',
+      body: `This clears the record of ${log.length} completed ${log.length === 1 ? 'task' : 'tasks'} that Insights is built from. Your boards and done piles are not touched.`,
+      ok: 'Reset statistics', danger: true,
+    });
+    if (!ok) return;
+    snapshot();
+    log = [];
+    logDirty = true;
+    commit();
+    syncSettings();
+    toast('Statistics reset', { undoable: true });
+  });
+
+  /* ------------------------------------------------------------------ *
+   * Insights: what got done, and when. Built from the completion log.
+   * Charts are plain SVG drawn here; colours come from the CSS tokens.
+   * ------------------------------------------------------------------ */
+  const insights = $('#insights');
+  const vizTip = $('#viz-tip');
+  const ins = { ws: 'all', range: '30d', tab: 'overview', day: null, shown: 150 };
+  const RANGES = [['7d', '7 days', 'the last 7 days'], ['30d', '30 days', 'the last 30 days'], ['6m', '6 months', 'the last 6 months'], ['1y', '1 year', 'the last year']];
+  const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function svg(tag, attrs, ...kids) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'text') el.textContent = v; else el.setAttribute(k, v);
+    }
+    el.append(...kids.flat().filter(Boolean));
+    return el;
+  }
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dayKey = (ts) => dateStr(new Date(ts));
+  const mondayIndex = (d) => (d.getDay() + 6) % 7; // 0 = Monday
+  function rangeStart(key) {
+    const t = new Date();
+    const [y, m, d] = [t.getFullYear(), t.getMonth(), t.getDate()];
+    if (key === '7d') return new Date(y, m, d - 6);
+    if (key === '30d') return new Date(y, m, d - 29);
+    if (key === '6m') return new Date(y, m - 6, d + 1);
+    return new Date(y - 1, m, d + 1);
+  }
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  function fmtSpan(ms) {
+    const hours = ms / 3600000;
+    if (hours < 1) return plural(Math.max(1, Math.round(ms / 60000)), 'minute');
+    if (hours < 48) return plural(Math.round(hours), 'hour');
+    const days = hours / 24;
+    return `${days < 10 ? days.toFixed(1).replace(/\.0$/, '') : Math.round(days)} days`;
+  }
+  const fmtLongDay = (d) => d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+
+  function openInsights() {
+    setMenu(false);
+    ins.day = null;
+    ins.shown = 150;
+    renderInsights();
+    if (!insights.open) insights.showModal();
+    insights.scrollTop = 0;
+    $('#ins-back').focus();
+  }
+  $('#insights-open').addEventListener('click', openInsights);
+  $('#ins-back').addEventListener('click', () => insights.close());
+  insights.addEventListener('close', () => { hideTip(); $('#insights-open').focus(); });
+
+  function renderInsights() {
+    if (ins.ws !== 'all' && !state.workspaces.some((w) => w.id === ins.ws)) ins.ws = 'all';
+    const chip = (id, label, on) => h('button', { type: 'button', class: 'chip', dataset: { ws: id }, 'aria-pressed': String(on), text: label });
+    $('#ins-ws').replaceChildren(chip('all', 'All workspaces', ins.ws === 'all'),
+      ...state.workspaces.map((w) => chip(w.id, `${w.emoji} ${w.name}`, ins.ws === w.id)));
+    $('#ins-range').replaceChildren(...RANGES.map(([id, label]) =>
+      h('button', { type: 'button', dataset: { range: id }, 'aria-pressed': String(ins.range === id), text: label })));
+    for (const tab of $$('[role="tab"]', insights)) tab.setAttribute('aria-selected', String(tab.dataset.tab === ins.tab));
+
+    const entries = ins.ws === 'all' ? log : log.filter((e) => e.wsId === ins.ws);
+    const from = rangeStart(ins.range);
+    const to = dayStart(new Date());
+    const inRange = entries.filter((e) => e.completedAt >= from.getTime() && e.completedAt < to.getTime() + DAY_MS + 3600000);
+    const body = $('#ins-body');
+    hideTip();
+    body.replaceChildren(...(ins.tab === 'history' ? historyView(inRange) : overviewView(entries, inRange, from, to)));
+  }
+
+  $('#ins-ws').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (b) { ins.ws = b.dataset.ws; ins.day = null; ins.shown = 150; renderInsights(); $(`#ins-ws [data-ws="${CSS.escape(ins.ws)}"]`).focus(); }
+  });
+  $('#ins-range').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { ins.range = b.dataset.range; ins.day = null; ins.shown = 150; renderInsights(); $(`#ins-range [data-range="${ins.range}"]`).focus(); }
+  });
+  $('#ins-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { ins.tab = b.dataset.tab; renderInsights(); b.focus(); }
+  });
+
+  /* Overview ----------------------------------------------------------- */
+  function overviewView(entries, inRange, from, to) {
+    const rangeText = RANGES.find((r) => r[0] === ins.range)[2];
+    const perDay = new Map();
+    for (const e of entries) perDay.set(dayKey(e.completedAt), (perDay.get(dayKey(e.completedAt)) || 0) + 1);
+
+    // this week and last week (weeks start on Monday)
+    const monday = new Date(to.getFullYear(), to.getMonth(), to.getDate() - mondayIndex(to));
+    const lastMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7);
+    const thisWeek = entries.filter((e) => e.completedAt >= monday.getTime()).length;
+    const lastWeek = entries.filter((e) => e.completedAt >= lastMonday.getTime() && e.completedAt < monday.getTime()).length;
+
+    // streak: consecutive days with a completion, counted back from today (or from yesterday if today is still open)
+    const doneToday = perDay.has(dateStr(to));
+    let streak = 0;
+    for (let i = doneToday ? 0 : 1; perDay.has(dateStr(new Date(to.getFullYear(), to.getMonth(), to.getDate() - i))); i++) streak++;
+
+    const byWeekday = Array(7).fill(0);
+    const byHour = Array(24).fill(0);
+    const byQuadrant = Object.fromEntries(Q_IDS.map((q) => [q, 0]));
+    let spanSum = 0;
+    let spanN = 0;
+    for (const e of inRange) {
+      const d = new Date(e.completedAt);
+      byWeekday[mondayIndex(d)]++;
+      byHour[d.getHours()]++;
+      byQuadrant[e.quadrant]++;
+      if (e.completedAt >= e.createdAt) { spanSum += e.completedAt - e.createdAt; spanN++; }
+    }
+    const total = inRange.length;
+    const bestDay = byWeekday.indexOf(Math.max(...byWeekday));
+    const bestHour = byHour.indexOf(Math.max(...byHour));
+
+    const card = (label, value, sub) => h('div', { class: 'ins-card stat' },
+      h('span', { class: 'stat-label', text: label }), h('span', { class: 'stat-value', text: value }), h('span', { class: 'stat-sub', text: sub }));
+    const cards = h('div', { class: 'ins-stats' },
+      card('This week', String(thisWeek), lastWeek ? `Last week: ${lastWeek}${thisWeek > lastWeek ? ` · ${thisWeek - lastWeek} more so far` : ''}` : 'completed since Monday'),
+      card('Current streak', plural(streak, 'day'), streak ? (doneToday ? 'in a row, including today' : 'in a row, up to yesterday') : 'Your next completion starts one'),
+      card('Most productive day', total ? WEEKDAY_NAME(bestDay) : '–', total ? `${plural(byWeekday[bestDay], 'task')} in ${rangeText}` : `Nothing in ${rangeText} yet`),
+      card('From added to done', spanN ? fmtSpan(spanSum / spanN) : '–', spanN ? `on average, ${rangeText}` : `Nothing in ${rangeText} yet`));
+
+    const panel = (title, sub, ...kids) => h('section', { class: 'ins-card' },
+      h('h3', { text: title }), sub && h('p', { class: 'ins-sub', text: sub }), ...kids);
+
+    const heat = panel('Completions per day', `${plural(total, 'task')} completed in ${rangeText}. Select a day to see them.`,
+      h('div', { class: 'heat-row' }, h('div', { class: 'heat-main' }, heatmap(perDay, from, to), heatLegend()), dayPanel(inRange)));
+    heat.classList.add('wide');
+    if (!total) {
+      return [cards, heat, h('section', { class: 'ins-card wide ins-empty' },
+        h('p', { text: log.length ? `Nothing completed in ${rangeText} here. Try a longer range or another workspace.` : 'Finish a task and it will show up here. Every tick on the board adds to these charts.' }))];
+    }
+
+    const ws = ins.ws === 'all' ? null : state.workspaces.find((w) => w.id === ins.ws);
+    const nameOf = (q) => (ws ? qName(ws, q) : Q_TITLE[q]);
+    const top = Q_IDS.reduce((a, b) => (byQuadrant[b] > byQuadrant[a] ? b : a));
+    const share = byQuadrant[top] / total;
+    return [cards, heat,
+      panel('By weekday', null, barChart(byWeekday, WEEKDAYS.map((d) => d.slice(0, 3)), {
+        width: 380, tip: (i) => `${WEEKDAYS[i]}: ${plural(byWeekday[i], 'task')}`, label: 'Completions by weekday',
+      })),
+      panel('By hour of day', `You finish most tasks between ${pad2(bestHour)}:00 and ${pad2((bestHour + 1) % 24)}:00.`, barChart(byHour, byHour.map((_, i) => (i % 3 === 0 ? `${pad2(i)}` : '')), {
+        width: 620, tip: (i) => `${pad2(i)}:00–${pad2((i + 1) % 24)}:00: ${plural(byHour[i], 'task')}`, label: 'Completions by hour of day',
+      })),
+      Object.assign(panel('By quadrant',
+        share > 0.5 ? `Most of your completed work came from ${nameOf(top)}.` : `The largest share of your completed work came from ${nameOf(top)}.`,
+        quadrantShare(byQuadrant, total, nameOf)), { className: 'ins-card wide' })];
+  }
+  const WEEKDAY_NAME = (i) => WEEKDAYS[i];
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  /** GitHub-style calendar: one column per week (Monday on top), one cell per day. */
+  function heatmap(perDay, from, to) {
+    const days = Math.round((to - from) / DAY_MS) + 1;
+    const big = days <= 31;
+    const cell = big ? 26 : 13;
+    const step = cell + (big ? 4 : 3);
+    const left = 34;
+    const top = 20;
+    const offset = mondayIndex(from);
+    const weeks = Math.ceil((days + offset) / 7);
+    let max = 0;
+    for (let i = 0; i < days; i++) max = Math.max(max, perDay.get(dateStr(new Date(from.getFullYear(), from.getMonth(), from.getDate() + i))) || 0);
+
+    const out = svg('svg', {
+      class: 'heatmap', width: left + weeks * step, height: top + 7 * step, viewBox: `0 0 ${left + weeks * step} ${top + 7 * step}`,
+      role: 'grid', 'aria-label': 'Completions per day',
+    });
+    for (const [row, name] of [[0, 'Mon'], [2, 'Wed'], [4, 'Fri'], [6, 'Sun']]) {
+      out.append(svg('text', { class: 'viz-label', x: left - 8, y: top + row * step + cell / 2, 'text-anchor': 'end', 'dominant-baseline': 'central', text: name }));
+    }
+    let lastLabelCol = -9;
+    const focusKey = ins.day && ins.day >= dateStr(from) && ins.day <= dateStr(to) ? ins.day : dateStr(to);
+    for (let i = 0; i < days; i++) {
+      const d = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+      const key = dateStr(d);
+      const col = Math.floor((i + offset) / 7);
+      const row = (i + offset) % 7;
+      const n = perDay.get(key) || 0;
+      const level = n ? Math.min(4, Math.ceil((n / max) * 4)) : 0;
+      if ((d.getDate() === 1 || i === 0) && col - lastLabelCol >= (big ? 2 : 3)) {
+        out.append(svg('text', { class: 'viz-label', x: left + col * step, y: 9, text: d.toLocaleDateString('en-GB', { month: 'short' }) }));
+        lastLabelCol = col;
+      }
+      const label = `${fmtLongDay(d)}: ${n ? plural(n, 'task') : 'nothing'} completed`;
+      out.append(svg('rect', {
+        class: `hm-cell hm-l${level}${key === ins.day ? ' selected' : ''}`, x: left + col * step, y: top + row * step, width: cell, height: cell, rx: big ? 6 : 3,
+        tabindex: key === focusKey ? 0 : -1, role: 'gridcell', 'aria-label': label, 'aria-selected': String(key === ins.day),
+        'data-day': key, 'data-tip': label,
+      }));
+    }
+    return h('div', { class: 'heat-scroll' }, out);
+  }
+  function heatLegend() {
+    return h('div', { class: 'heat-legend', 'aria-hidden': 'true' }, h('span', { text: 'Fewer' }),
+      ...[0, 1, 2, 3, 4].map((l) => h('i', { class: `hm-l${l}` })), h('span', { text: 'More' }));
+  }
+  function selectDay(key, focus) {
+    ins.day = key;
+    renderInsights();
+    const cellEl = $(`.hm-cell[data-day="${key}"]`, insights);
+    if (cellEl && focus) cellEl.focus();
+  }
+  $('#ins-body').addEventListener('click', (e) => {
+    const cellEl = e.target.closest('.hm-cell');
+    if (cellEl) { selectDay(cellEl.dataset.day === ins.day ? null : cellEl.dataset.day, false); return; }
+    if (e.target.closest('#ins-more')) { ins.shown += 150; renderInsights(); }
+  });
+  $('#ins-body').addEventListener('keydown', (e) => {
+    const cellEl = e.target.closest('.hm-cell');
+    if (!cellEl) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDay(cellEl.dataset.day === ins.day ? null : cellEl.dataset.day, true); return; }
+    const move = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 }[e.key];
+    if (!move) return;
+    e.preventDefault();
+    const d = parseDay(cellEl.dataset.day);
+    const next = $(`.hm-cell[data-day="${dateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() + move))}"]`, insights);
+    if (next) { cellEl.tabIndex = -1; next.tabIndex = 0; next.focus(); }
+  });
+
+  function entryRow(e) {
+    const ws = state.workspaces.find((w) => w.id === e.wsId);
+    return h('li', { class: 'hist-row', dataset: { q: e.quadrant } },
+      h('span', { class: 'q-dot', title: ws ? qName(ws, e.quadrant) : Q_TITLE[e.quadrant] }),
+      h('span', { class: 'hist-title', text: e.title }),
+      ws && h('span', { class: 'hist-ws', text: ws.emoji, title: ws.name }),
+      h('time', { class: 'hist-time', text: new Date(e.completedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }));
+  }
+  function dayGroup(key, list) {
+    return h('section', { class: 'hist-day' },
+      h('h4', null, fmtLongDay(parseDay(key)), h('span', { class: 'hist-count', text: plural(list.length, 'task') })),
+      h('ul', { class: 'hist-list' }, ...list.map(entryRow)));
+  }
+  function dayPanel(inRange) {
+    if (!ins.day) return null;
+    const list = inRange.filter((e) => dayKey(e.completedAt) === ins.day).sort((a, b) => b.completedAt - a.completedAt);
+    return h('div', { class: 'day-panel', id: 'day-panel' },
+      list.length ? dayGroup(ins.day, list) : h('p', { class: 'ins-sub', text: `${fmtLongDay(parseDay(ins.day))}: nothing completed. A quiet day.` }));
+  }
+
+  /* History: every completion in the range, grouped by day, newest first. */
+  function historyView(inRange) {
+    const rangeText = RANGES.find((r) => r[0] === ins.range)[2];
+    if (!inRange.length) {
+      return [h('section', { class: 'ins-card wide ins-empty' }, h('p', { text: log.length ? `Nothing completed in ${rangeText} here.` : 'Finish a task and it will show up here.' }))];
+    }
+    const sorted = [...inRange].sort((a, b) => b.completedAt - a.completedAt);
+    const groups = new Map();
+    for (const e of sorted.slice(0, ins.shown)) {
+      const key = dayKey(e.completedAt);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(e);
+    }
+    return [h('section', { class: 'ins-card wide' },
+      h('h3', { text: 'History' }), h('p', { class: 'ins-sub', text: `${plural(sorted.length, 'task')} completed in ${rangeText}.` }),
+      ...[...groups].map(([key, list]) => dayGroup(key, list)),
+      sorted.length > ins.shown && h('button', { type: 'button', id: 'ins-more', class: 'btn', text: `Show ${Math.min(150, sorted.length - ins.shown)} more` }))];
+  }
+
+  /** Vertical bars from a shared baseline. The tallest bar is emphasised and carries its value. */
+  function barChart(values, labels, { width, tip, label }) {
+    const height = 170;
+    const padTop = 22;
+    const padBottom = 22;
+    const plotH = height - padTop - padBottom;
+    const band = width / values.length;
+    const barW = Math.min(30, band - 2 - Math.max(0, band * 0.22)); // at least a 2px gap between neighbours
+    const max = Math.max(...values, 1);
+    const peak = values.indexOf(Math.max(...values));
+    const out = svg('svg', { class: 'bars', viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `${label}. ${values.map((v, i) => tip(i)).filter((_, i) => values[i]).join('; ')}` });
+    out.append(svg('line', { class: 'viz-axis', x1: 0, x2: width, y1: padTop + plotH + 0.5, y2: padTop + plotH + 0.5 }));
+    values.forEach((v, i) => {
+      const x = i * band + (band - barW) / 2;
+      const hgt = v ? Math.max(3, (v / max) * plotH) : 0;
+      const y = padTop + plotH - hgt;
+      const r = Math.min(4, hgt, barW / 2);
+      const g = svg('g', { class: `bar-g${i === peak && v ? ' peak' : ''}`, 'data-tip': tip(i) },
+        svg('rect', { class: 'bar-hit', x: i * band, y: 0, width: band, height }),
+        v ? svg('path', { class: 'bar', d: `M${x},${y + hgt}V${y + r}a${r},${r} 0 0 1 ${r},-${r}h${barW - 2 * r}a${r},${r} 0 0 1 ${r},${r}V${y + hgt}z` }) : null,
+        i === peak && v ? svg('text', { class: 'viz-value', x: x + barW / 2, y: y - 6, 'text-anchor': 'middle', text: String(v) }) : null,
+        labels[i] ? svg('text', { class: 'viz-label', x: i * band + band / 2, y: height - 6, 'text-anchor': 'middle', text: labels[i] }) : null);
+      out.append(g);
+    });
+    return out;
+  }
+
+  /** One stacked bar plus a legend that carries names and numbers, so colour is never the only cue. */
+  function quadrantShare(counts, total, nameOf) {
+    // Percent geometry, so the bar fills its card at any width without stretching the corners.
+    const out = svg('svg', { class: 'share', width: '100%', height: 24, role: 'img', 'aria-label': 'Share of completions per quadrant' });
+    let x = 0;
+    for (const q of Q_IDS.filter((id) => counts[id])) {
+      const w = (counts[q] / total) * 100;
+      const pct = Math.round(w);
+      out.append(svg('rect', { class: 'share-seg', 'data-q': q, x: `${x}%`, y: 1, width: `${w}%`, height: 22, rx: 5, 'data-tip': `${nameOf(q)}: ${plural(counts[q], 'task')} (${pct}%)` }));
+      x += w;
+    }
+    const legend = h('ul', { class: 'share-legend' }, ...Q_IDS.map((q) =>
+      h('li', { dataset: { q } }, h('span', { class: 'q-dot' }), h('span', { class: 'grow', text: nameOf(q) }),
+        h('span', { class: 'num', text: String(counts[q]) }), h('span', { class: 'pct', text: `${Math.round((counts[q] / total) * 100)}%` }))));
+    return h('div', { class: 'share-wrap' }, out, legend);
+  }
+
+  /* One shared tooltip for every mark that has data-tip. */
+  function showTip(target) {
+    vizTip.textContent = target.getAttribute('data-tip');
+    vizTip.hidden = false;
+    const r = target.getBoundingClientRect();
+    const w = vizTip.offsetWidth;
+    const top = r.top - vizTip.offsetHeight - 8;
+    vizTip.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8))}px`;
+    vizTip.style.top = `${top < 8 ? r.bottom + 8 : top}px`;
+  }
+  function hideTip() { vizTip.hidden = true; }
+  insights.addEventListener('pointerover', (e) => {
+    const t = e.target instanceof Element && e.target.closest('[data-tip]');
+    if (t) showTip(t.classList.contains('bar-g') ? ($('.bar', t) || t) : t); else hideTip();
+  });
+  insights.addEventListener('pointerleave', hideTip);
+  insights.addEventListener('focusin', (e) => { if (e.target instanceof Element && e.target.matches('[data-tip]')) showTip(e.target); });
+  insights.addEventListener('focusout', hideTip);
+  insights.addEventListener('scroll', hideTip, { passive: true });
+
+  /* ------------------------------------------------------------------ *
    * Theme
    * ------------------------------------------------------------------ */
   const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -1605,6 +2247,7 @@
       format: DATA_VERSION,
       exportedAt: new Date().toISOString(),
       data: { version, theme, activeId, workspaces },
+      log, // completion log behind Insights
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
     const a = h('a', { href: url, download: `eisenhower-backup-${todayStr()}.json` });
@@ -1625,8 +2268,12 @@
     const file = importFile.files[0];
     if (!file) return;
     let next;
+    let nextLog;
     try {
-      next = normalize(JSON.parse(await file.text()));
+      const raw = JSON.parse(await file.text());
+      next = normalize(raw);
+      // backups from before the log existed get one built from their done piles
+      nextLog = raw && raw.log !== undefined ? normalizeLog(raw.log) : backfillLog(next);
     } catch {
       toast('That file is not a valid Eisenhower Tabs backup.');
       return;
@@ -1640,8 +2287,11 @@
     });
     if (!ok) return;
     snapshot();
-    next.theme = state.theme; // the theme is a device preference, keep it
+    next.theme = state.theme; // theme and weather belong to this device, keep them
+    next.weather = state.weather;
     state = next;
+    log = nextLog;
+    logDirty = true;
     ui.composer = null;
     commit();
     toast('Backup imported', { undoable: true });
@@ -1674,6 +2324,7 @@
     switch (e.key.toLowerCase()) {
       case 'n': e.preventDefault(); quickInput.focus(); break;
       case 'd': e.preventDefault(); setDrawer(!drawerOpen()); break;
+      case 'i': e.preventDefault(); openInsights(); break;
       case '[': switchRelative(-1); break;
       case ']': switchRelative(1); break;
       default:
@@ -1686,7 +2337,16 @@
   // Another tab changed the data: pick it up so tabs never overwrite each other.
   if (hasChromeStorage) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      const change = area === 'local' && changes[STORAGE_KEY];
+      if (area !== 'local') return;
+      const logChange = changes[LOG_KEY];
+      if (logChange && logChange.newValue && logChange.newValue.writer !== TAB_ID) {
+        log = normalizeLog(logChange.newValue);
+        logDirty = false;
+        if (insights.open) renderInsights();
+        if (settings.open) syncSettings();
+      }
+      if (changes[WEATHER_KEY]) { wxCache = readWxCache(changes[WEATHER_KEY].newValue); if (state) renderHeader(); }
+      const change = changes[STORAGE_KEY];
       if (!change || !change.newValue || change.newValue.writer === TAB_ID) return;
       let next;
       try { next = normalize(change.newValue); } catch { return; }
@@ -1698,11 +2358,18 @@
       if (ui.detailId && !findTask(ui.detailId)) detail.close();
       if (ui.wsEditId && !state.workspaces.some((w) => w.id === ui.wsEditId)) wsDialog.close();
       render();
+      if (insights.open) renderInsights();
+      if (settings.open) syncSettings();
+      wxPermission(false).then((ok) => { wxAllowed = state.weather.enabled && ok; renderHeader(); refreshWeather(); });
     });
   }
 
   // Roll over to the new day if the tab stays open past midnight.
-  const refreshDay = () => { if (state && ui.day !== todayStr() && !drag) render(); };
+  const refreshDay = () => {
+    if (!state) return;
+    if (ui.day !== todayStr() && !drag) render(); else renderHeader(); // keeps the greeting in step with the clock
+    refreshWeather();
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refreshDay(); else flush();
   });
@@ -1714,15 +2381,23 @@
    * Boot
    * ------------------------------------------------------------------ */
   (async function init() {
-    let stored = null;
-    try { stored = await store.load(); } catch { /* start fresh below */ }
+    // Boards, completion log and the last weather reading arrive in one read, so the first paint has everything.
+    const allowed = wxPermission(false);
+    let got = {};
+    try { got = (await store.load([STORAGE_KEY, LOG_KEY, WEATHER_KEY])) || {}; } catch { /* start fresh below */ }
+    const stored = got[STORAGE_KEY];
     try {
       state = stored ? normalize(stored) : defaultState();
     } catch {
       state = defaultState();
     }
+    if (got[LOG_KEY]) log = normalizeLog(got[LOG_KEY]);
+    else { log = backfillLog(state); logDirty = true; } // first run with the log: fill it from the done piles
+    wxCache = readWxCache(got[WEATHER_KEY]);
+    wxAllowed = state.weather.enabled && await allowed;
     applyTheme();
     render();
-    if (!stored || stored.version !== DATA_VERSION) save(); // also persists a migration right away
+    if (!stored || stored.version !== DATA_VERSION || logDirty) save(); // also persists a migration right away
+    refreshWeather();
   })();
 })();
