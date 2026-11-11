@@ -45,16 +45,35 @@
   /* Notes keep dark text in both themes */
   --note-ink: #24242b;
   --note-ink-soft: rgba(36, 36, 43, 0.86);
-  --overdue: #c5352a;
-  --overdue-bg: #fff4f2;
+  --overdue: #a1241a;
+  --overdue-bg: #ffd6cf;   /* soft red pill, the strongest badge */
+  --overdue-text: #c5352a; /* overdue wording on neutral surfaces */
+  --today-tint: 20%;       /* strength of the Today pill */
   --check: #1f8a4c;
 
   /* Note sizes per density. Do first and Schedule are normal, Delegate is
      small, Eliminate is compact; any quadrant that overflows steps down. */
-  --note-gap: 12px;
-  --note-w: 176px;          --note-min-h: 96px;          --note-fs: 14.5px;          --note-pad: 13px 14px 11px;
-  --note-w-small: 152px;    --note-min-h-small: 84px;    --note-fs-small: 13.5px;    --note-pad-small: 11px 12px 10px;
-  --note-w-compact: 128px;  --note-min-h-compact: 66px;  --note-fs-compact: 12.5px;  --note-pad-compact: 9px 10px 8px;
+--note-gap: clamp(10px, 0.83vw, 18px);
+  /* Sizes grow with the window (clamp) so a 2560px board is not a sea of small notes.
+     Each value: floor, slope through its 1440px size, ceiling reached around 2560px. */
+  --note-w: clamp(164px, 82px + 6.5vw, 250px);
+  --note-min-h: clamp(92px, 44px + 3.6vw, 138px);
+  --note-fs: clamp(14px, 11.9px + 0.18vw, 16.5px);
+  --note-pad: clamp(11px, 0.9vw, 17px) clamp(12px, 0.97vw, 19px) clamp(10px, 0.76vw, 15px);
+  --note-badge: clamp(11px, 9.9px + 0.11vw, 12.75px);
+  --note-w-small: clamp(144px, 70px + 5.7vw, 216px);
+  --note-min-h-small: clamp(80px, 40px + 3.05vw, 118px);
+  --note-fs-small: clamp(13px, 11.2px + 0.16vw, 15.25px);
+  --note-pad-small: clamp(10px, 0.76vw, 15px) clamp(11px, 0.83vw, 17px) clamp(9px, 0.7vw, 14px);
+  --note-badge-small: clamp(10.5px, 9.6px + 0.1vw, 12.25px);
+  --note-w-compact: clamp(124px, 62px + 4.6vw, 180px);
+  --note-min-h-compact: clamp(62px, 34px + 2.2vw, 92px);
+  --note-fs-compact: clamp(12.5px, 10.6px + 0.134vw, 14px);
+  --note-pad-compact: clamp(8px, 0.62vw, 13px) clamp(9px, 0.7vw, 14px) clamp(7px, 0.55vw, 11px);
+  --note-badge-compact: clamp(10.5px, 9.1px + 0.1vw, 11.75px);
+  --zone-pad: clamp(14px, 1.25vw, 28px);    /* inner padding of a quadrant */
+  --board-gap: clamp(12px, 0.97vw, 22px);
+  --chrome-footer-space: 36px;              /* kept clear for Chrome's own new tab footer */
   --note-lines: 4;          /* title lines before the ellipsis */
   --n-badge: 11.5px;        /* badge size outside a quadrant (dialogs) */
 
@@ -114,8 +133,10 @@
   --review-zone: oklch(0.27 0.024 300);
   --note-ink: #1d1d22;
   --note-ink-soft: rgba(29, 29, 34, 0.86);
-  --overdue: #96200f;
-  --overdue-bg: #f7d9d3;
+  --overdue: #861b0e;
+  --overdue-bg: #f5c6bd;
+  --overdue-text: #ff8f84;
+  --today-tint: 12%;
   --tab-tint: 26%;
   --focus-halo: 12%;
 
@@ -227,8 +248,7 @@ svg { width: 16px; height: 16px; flex: none; }
 .hello h1 { font-family: var(--font-display); font-size: 25px; font-weight: var(--fw-greeting); letter-spacing: -0.015em; line-height: 1.15; white-space: nowrap; }
 .today { color: var(--ink-soft); font-size: 13px; white-space: nowrap; }
 .summary { margin-top: 3px; font-size: 15.5px; font-weight: 600; }
-.summary .overdue { color: var(--overdue); white-space: nowrap; }
-:root[data-theme="dark"] .summary .overdue { color: var(--danger); }
+.summary .overdue { color: var(--overdue-text); white-space: nowrap; }
 
 .actions { display: flex; align-items: center; justify-self: end; gap: 2px; }
 #done-toggle[aria-expanded="true"] { background: var(--accent-soft); color: var(--ink); }
@@ -335,8 +355,8 @@ kbd {
   display: grid;
   grid-template-columns: 20px minmax(0, 1.1fr) minmax(0, 1fr);
   grid-template-rows: 18px minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 10px 14px;
-  padding: 4px 20px 20px 10px;
+  gap: 10px var(--board-gap);
+  padding: 4px 20px calc(16px + var(--chrome-footer-space)) 10px;
 }
 .axis {
   display: flex; align-items: center; gap: 12px; padding-inline: 20px;
@@ -385,13 +405,13 @@ kbd {
 }
 .quadrant.drop-target::after { opacity: 0.7; }
 
-.q-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 4px 18px; min-height: 48px; }
+.q-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 4px var(--zone-pad); min-height: 48px; }
 .q-title {
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  font-family: var(--font-display); font-size: 17px; font-weight: var(--fw-title); letter-spacing: -0.01em;
+  font-family: var(--font-display); font-size: clamp(16.5px, 14.4px + 0.18vw, 19px); font-weight: var(--fw-title); letter-spacing: -0.01em;
   color: var(--q-accent); white-space: nowrap;
 }
-.quadrant[data-q="do"] .q-title { font-size: 21px; letter-spacing: -0.015em; }
+.quadrant[data-q="do"] .q-title { font-size: clamp(20px, 17.2px + 0.26vw, 24px); letter-spacing: -0.015em; }
 /* Subtitle: first thing to give way when the header gets tight */
 .q-sub {
   flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -426,18 +446,18 @@ kbd {
 
 /* Fixed-width notes; leftover space stays empty. data-density is set from JS. */
 .note-list {
-  --n-w: var(--note-w); --n-min-h: var(--note-min-h); --n-fs: var(--note-fs); --n-pad: var(--note-pad); --n-badge: 11.5px;
+  --n-w: var(--note-w); --n-min-h: var(--note-min-h); --n-fs: var(--note-fs); --n-pad: var(--note-pad); --n-badge: var(--note-badge);
   position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
   display: grid; grid-template-columns: repeat(auto-fill, min(var(--n-w), 100%));
-  grid-auto-rows: min-content; align-content: start; align-items: start; gap: var(--note-gap);
-  padding: 8px 18px 18px;
+  grid-auto-rows: auto; align-content: start; gap: var(--note-gap); /* rows stretch: notes in a row share one height */
+  padding: 8px var(--zone-pad) var(--zone-pad);
   scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--q-accent) 28%, transparent) transparent;
 }
 .note-list[data-density="small"] {
-  --n-w: var(--note-w-small); --n-min-h: var(--note-min-h-small); --n-fs: var(--note-fs-small); --n-pad: var(--note-pad-small); --n-badge: 11px;
+  --n-w: var(--note-w-small); --n-min-h: var(--note-min-h-small); --n-fs: var(--note-fs-small); --n-pad: var(--note-pad-small); --n-badge: var(--note-badge-small);
 }
 .note-list[data-density="compact"] {
-  --n-w: var(--note-w-compact); --n-min-h: var(--note-min-h-compact); --n-fs: var(--note-fs-compact); --n-pad: var(--note-pad-compact); --n-badge: 10.5px;
+  --n-w: var(--note-w-compact); --n-min-h: var(--note-min-h-compact); --n-fs: var(--note-fs-compact); --n-pad: var(--note-pad-compact); --n-badge: var(--note-badge-compact);
 }
 
 .empty {
@@ -498,15 +518,17 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 }
 .note-meta { display: flex; align-items: center; gap: 6px; margin-top: auto; padding-top: 8px; padding-right: 24px; }
 
-/* Dates: one badge shape for every date. Colours come from the note, except overdue. */
+/* Dates: one pill shape, four strengths. Overdue (soft red) > Today (note accent)
+   > the coming days (light tint, with weekday) > later (outline only). */
 .due {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: var(--r-pill);
-  font-size: var(--n-badge); font-weight: 650; line-height: 1.45; white-space: nowrap; color: var(--q-ink);
+  font-size: var(--n-badge); font-weight: 600; line-height: 1.45; white-space: nowrap; color: var(--q-ink);
 }
-.due-later { padding-inline: 0; }
-.due-soon { background: color-mix(in srgb, var(--q-ink) 10%, transparent); }
-.due-today { background: var(--q-ink); color: var(--q); font-weight: 750; } /* accent: the note's colours inverted */
-.due-overdue { background: var(--overdue-bg); color: var(--overdue); font-weight: 700; }
+.due-later { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-ink) 26%, transparent); font-weight: 500; }
+.due-soon { background: color-mix(in srgb, var(--q-ink) 9%, transparent); }
+.due-today { background: color-mix(in srgb, var(--q-ink) var(--today-tint), transparent); font-weight: 750; }
+.due-today::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.due-overdue { background: var(--overdue-bg); color: var(--overdue); font-weight: 750; }
 /* Plan ahead: a nudge to pick a date */
 .when-hint {
   padding: 1px 8px; border-radius: var(--r-pill); cursor: pointer;
@@ -615,21 +637,21 @@ dialog.confirm p { color: var(--ink-soft); }
 .link-btn { padding: 2px 4px; border: 0; background: none; font-size: 12.5px; font-weight: 650; text-decoration: underline; opacity: 0.7; }
 .link-btn:hover { opacity: 1; }
 
-/* Task detail = one big sticky note */
+/* Task detail: a neutral sheet; the note colour stays as the band on top */
 dialog.detail {
-  --ink: var(--note-ink); --ink-soft: var(--note-ink-soft);
-  --line: rgba(36, 36, 43, 0.16); --surface-2: rgba(255, 255, 255, 0.55);
-  --danger: #a9281e; --accent: var(--q-ink); --accent-soft: color-mix(in srgb, var(--q-ink) 18%, transparent);
-  color-scheme: light;
-  width: min(540px, calc(100vw - 32px));
-  background: var(--q); color: var(--note-ink);
-  border-radius: var(--r-note);
+  --accent: var(--q-accent); --accent-soft: color-mix(in srgb, var(--q-accent) 20%, transparent);
+  width: min(560px, calc(100vw - 32px));
 }
-.detail .btn.primary { background: var(--note-ink); color: #fff; }
-.detail .icon-btn { background: rgba(255, 255, 255, 0.55); box-shadow: none; }
-.detail-top { display: flex; align-items: center; gap: 10px; }
-.d-meta { flex: 1; font-size: 12px; color: var(--ink-soft); text-align: right; }
-.done-check { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; cursor: pointer; padding: 5px 12px 5px 6px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.55); }
+dialog.detail form { gap: 0; padding: 0; }
+.detail-band {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 16px;
+  background: var(--q); color: var(--note-ink);
+}
+.detail-band .icon-btn { border-color: transparent; background: color-mix(in srgb, #fff 55%, var(--q)); box-shadow: none; }
+.detail-band :focus-visible, .done-check input:focus-visible + .box { outline: 2px solid var(--q-ink); outline-offset: 2px; }
+.detail-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 20px 16px; }
+.d-meta { flex: 1; font-size: 12px; color: var(--note-ink-soft); text-align: right; }
+.done-check { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; cursor: pointer; padding: 5px 12px 5px 6px; border-radius: var(--r-pill); background: color-mix(in srgb, #fff 55%, var(--q)); }
 .done-check input { position: absolute; opacity: 0; pointer-events: none; }
 .done-check .box {
   display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
@@ -638,29 +660,87 @@ dialog.detail {
 .done-check .box svg { width: 13px; height: 13px; }
 .done-check:hover .box { border-color: var(--check); color: var(--check); }
 .done-check input:checked + .box { background: var(--check); border-color: var(--check); color: #fff; }
-.done-check input:focus-visible + .box { outline: 2px solid var(--q-ink); outline-offset: 2px; }
+
+/* Title: reads as a heading, behaves as a field */
 .sheet textarea.d-title {
-  padding: 4px 6px; margin: 0 -6px; width: calc(100% + 12px);
-  border-color: transparent; background: none; resize: none; overflow: hidden;
-  font-size: 22px; font-weight: 750; line-height: 1.25; letter-spacing: -0.01em;
+  padding: 6px 10px; margin: 0 -10px; width: calc(100% + 20px);
+  border-color: transparent; background: none; resize: none; overflow: hidden; cursor: text;
+  font-size: 22px; font-weight: 650; line-height: 1.25; letter-spacing: -0.01em;
 }
-.sheet textarea.d-title:hover { background: rgba(255, 255, 255, 0.3); }
-.sheet textarea.d-title:focus { background: rgba(255, 255, 255, 0.55); }
-.due-wrap { display: flex; align-items: center; gap: 6px; }
-.q-choice { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sheet textarea.d-title:hover { background: var(--surface-2); border-color: var(--line); }
+.sheet textarea.d-title:focus { background: var(--surface-2); border-color: var(--accent); }
+.sheet textarea.d-notes { resize: none; min-height: 78px; max-height: 34vh; overflow-y: auto; }
+
+/* Buttons that open a picker (date, workspace) */
+.pick-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 38px; padding: 0 10px;
+  border: 1.5px solid var(--line); border-radius: var(--r-ctl); background: var(--surface-2);
+  font-size: 14px; text-align: left;
+}
+.pick-btn svg { color: var(--ink-soft); }
+.pick-btn .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-btn:hover { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.pick-btn:focus-visible, .pick-btn[aria-expanded="true"] { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pick-btn.empty .grow { color: var(--ink-soft); }
+.pick-btn.overdue .grow { color: var(--overdue-text); font-weight: 600; }
+
+/* Quadrant choice: neutral until chosen, then filled with the quadrant colour and a tick */
+.q-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .q-choice legend { margin-bottom: 5px; }
-.q-choice label { position: relative; cursor: pointer; }
+.q-choice label { position: relative; min-width: 0; cursor: pointer; }
 .q-choice input { position: absolute; opacity: 0; }
-.q-choice span {
-  display: block; padding: 7px 4px; border-radius: 9px; text-align: center;
-  font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  background: var(--q); border: 1.5px solid rgba(36, 36, 43, 0.14);
-  box-shadow: inset 0 0 0 100px rgba(255, 255, 255, 0.3);
-  transition: transform var(--t-fast) var(--ease);
+.q-opt {
+  display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 11px;
+  border: 1.5px solid var(--line); border-radius: var(--r-ctl); background: var(--surface-2);
+  font-size: 13.5px; font-weight: 500;
 }
-.q-choice label:hover span { transform: translateY(-1px); }
-.q-choice input:checked + span { border-color: var(--note-ink); box-shadow: 0 0 0 1.5px var(--note-ink); }
-.q-choice input:focus-visible + span { outline: 2px solid var(--note-ink); outline-offset: 2px; }
+.q-opt-mark {
+  display: grid; place-items: center; flex: none; width: 14px; height: 14px; border-radius: 4px;
+  background: var(--q); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--q-ink) 35%, transparent); color: transparent;
+}
+.q-opt-mark svg { width: 13px; height: 13px; }
+.q-opt-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-choice label:hover .q-opt { border-color: color-mix(in srgb, var(--q-accent) 60%, transparent); }
+.q-choice input:checked + .q-opt { background: var(--q); border-color: var(--q); color: var(--note-ink); font-weight: 700; }
+.q-choice input:checked + .q-opt .q-opt-mark { background: none; box-shadow: none; color: var(--q-ink); }
+.q-choice input:focus-visible + .q-opt { outline: 2px solid var(--q-accent); outline-offset: 2px; }
+
+/* Popovers (date picker, workspace menu). They open in the top layer and are placed from JS. */
+.popup {
+  position: fixed; inset: auto; margin: 0; padding: 8px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--surface); color: var(--ink); box-shadow: var(--sh-pop);
+}
+.popup:popover-open { animation: pop-in var(--t-fast) var(--ease); }
+.dp { width: 276px; }
+.dp-quick { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.dp-opt, .ws-opt {
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; padding: 0 9px;
+  border: 0; border-radius: 8px; background: none; font-size: 13.5px; font-weight: 600; text-align: left;
+}
+.dp-opt span:first-child, .ws-opt .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-opt .hint { font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.dp-opt:hover, .ws-opt:hover { background: var(--hover); }
+.dp-opt[aria-pressed="true"], .ws-opt[aria-selected="true"] { background: var(--accent-soft); }
+.dp-opt:focus-visible, .ws-opt:focus-visible, .dp-nav:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dp-head { display: flex; align-items: center; gap: 2px; padding: 0 0 4px 9px; }
+.dp-month { flex: 1; font-size: 13.5px; font-weight: 700; }
+.dp-nav { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px; background: none; color: var(--ink-soft); }
+.dp-nav:hover { background: var(--hover); color: var(--ink); }
+.dp-dow, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-dow span { padding: 2px 0 4px; text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--ink-soft); }
+.dp-day {
+  aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%; background: none;
+  font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+.dp-day:hover { background: var(--hover); }
+.dp-day.out { color: var(--ink-soft); opacity: 0.6; }
+.dp-day.today { box-shadow: inset 0 0 0 1.5px var(--q-accent); font-weight: 750; }
+.dp-day.selected { background: var(--q-accent); color: var(--surface); font-weight: 750; opacity: 1; }
+.dp-day:focus-visible { outline: 2px solid var(--q-accent); outline-offset: 2px; }
+.ws-menu { min-width: 210px; max-width: 300px; max-height: min(340px, calc(100vh - 32px)); overflow-y: auto; }
+.ws-opt .tick { width: 14px; height: 14px; color: var(--accent); visibility: hidden; }
+.ws-opt[aria-selected="true"] .tick { visibility: visible; }
 
 /* Workspace editor */
 .qname-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

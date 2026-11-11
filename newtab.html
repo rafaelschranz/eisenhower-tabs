@@ -151,52 +151,69 @@
 
 <dialog id="detail" class="sheet detail" aria-label="Task details">
   <form method="dialog" id="detail-form">
-    <div class="detail-top">
+    <div class="detail-band">
       <label class="done-check">
         <input type="checkbox" id="d-done">
-        <span class="box" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="box" aria-hidden="true"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <span>Done</span>
       </label>
       <span id="d-meta" class="d-meta"></span>
-      <button class="icon-btn" type="submit" aria-label="Close">
+      <button class="icon-btn" id="d-close" type="submit" aria-label="Close">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
     </div>
 
-    <textarea id="d-title" class="d-title" rows="1" maxlength="300" placeholder="Task title" aria-label="Title"></textarea>
+    <div class="detail-body">
+      <textarea id="d-title" class="d-title" rows="1" maxlength="300" placeholder="Task title" aria-label="Title" title="Click to edit the title"></textarea>
 
-    <label class="field">
-      <span class="field-label">Notes</span>
-      <textarea id="d-notes" rows="5" placeholder="Details, links, next steps…"></textarea>
-    </label>
-
-    <div class="field-row">
       <label class="field">
-        <span class="field-label">Due date</span>
-        <span class="due-wrap">
-          <input type="date" id="d-due">
-          <button type="button" id="d-due-clear" class="link-btn">Clear</button>
-        </span>
+        <span class="field-label">Notes</span>
+        <textarea id="d-notes" class="d-notes" rows="3" placeholder="Details, links, next steps…"></textarea>
       </label>
-      <label class="field" id="d-ws-field">
-        <span class="field-label">Workspace</span>
-        <select id="d-ws"></select>
-      </label>
+
+      <div class="field-row">
+        <div class="field">
+          <span class="field-label" id="d-due-label">Due date</span>
+          <button type="button" id="d-due-btn" class="pick-btn" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="d-due-label d-due-text">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.2" y="3.2" width="11.6" height="10.6" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 6.7h11M5.4 1.8v2.6M10.6 1.8v2.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span id="d-due-text" class="grow">No date</span>
+          </button>
+        </div>
+        <div class="field" id="d-ws-field">
+          <span class="field-label" id="d-ws-label">Workspace</span>
+          <button type="button" id="d-ws-btn" class="pick-btn" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="d-ws-label d-ws-text">
+            <span id="d-ws-text" class="grow"></span>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <fieldset class="field q-choice">
+        <legend class="field-label">Quadrant</legend>
+        <label data-q="do"><input type="radio" name="d-q" value="do"><span class="q-opt"><span class="q-opt-mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="q-opt-name">Do first</span></span></label>
+        <label data-q="plan"><input type="radio" name="d-q" value="plan"><span class="q-opt"><span class="q-opt-mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="q-opt-name">Plan ahead</span></span></label>
+        <label data-q="offload"><input type="radio" name="d-q" value="offload"><span class="q-opt"><span class="q-opt-mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="q-opt-name">Get off the plate</span></span></label>
+        <label data-q="review"><input type="radio" name="d-q" value="review"><span class="q-opt"><span class="q-opt-mark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="q-opt-name">Review</span></span></label>
+      </fieldset>
+
+      <div class="sheet-foot">
+        <button type="button" id="d-delete" class="btn ghost-danger">Delete task</button>
+        <span class="saved-hint">Changes save automatically</span>
+      </div>
     </div>
 
-    <fieldset class="field q-choice">
-      <legend class="field-label">Quadrant</legend>
-      <label data-q="do"><input type="radio" name="d-q" value="do"><span>Do first</span></label>
-      <label data-q="plan"><input type="radio" name="d-q" value="plan"><span>Plan ahead</span></label>
-      <label data-q="offload"><input type="radio" name="d-q" value="offload"><span>Get off the plate</span></label>
-      <label data-q="review"><input type="radio" name="d-q" value="review"><span>Review</span></label>
-    </fieldset>
-
-    <div class="sheet-foot">
-      <button type="button" id="d-delete" class="btn ghost-danger">Delete task</button>
-      <span class="saved-hint">Changes save automatically</span>
-      <button type="submit" class="btn primary">Close</button>
+    <!-- Popovers live inside the dialog so they stay interactive while it is modal -->
+    <div id="dp" class="popup dp" popover role="dialog" aria-label="Choose a due date">
+      <div id="dp-quick" class="dp-quick"></div>
+      <div class="dp-head">
+        <span id="dp-month" class="dp-month" aria-live="polite"></span>
+        <button type="button" id="dp-prev" class="dp-nav" aria-label="Previous month"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 4.5L6 8l3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" id="dp-next" class="dp-nav" aria-label="Next month"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 4.5L10 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div class="dp-dow" aria-hidden="true"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+      <div id="dp-grid" class="dp-grid"></div>
     </div>
+    <div id="ws-menu" class="popup ws-menu" popover role="listbox" aria-labelledby="d-ws-label"></div>
   </form>
 </dialog>
 

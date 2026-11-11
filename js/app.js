@@ -19,6 +19,8 @@
   /** Quadrant ids used before the rename; mapped on load and on import. */
   const LEGACY_QUADRANTS = { schedule: 'plan', delegate: 'offload', eliminate: 'review' };
   const DATA_VERSION = 2;
+  // Tomorrow plus the seven days after it show their weekday ("Thu 19 Nov"); later dates show "26 Nov".
+  const SOON_DAYS = 8;
   const REVIEW_STALE_DAYS = 14; // tasks sitting in Review longer than this look faded
   const QUADRANT_NAME_MAX = 28;
 
@@ -108,9 +110,24 @@
     if (diff < 0) return { kind: 'overdue', label: `Overdue · ${fmtDay(parseDay(due))}` };
     if (diff === 0) return { kind: 'today', label: 'Today' };
     if (diff === 1) return { kind: 'soon', label: 'Tomorrow' };
-    if (diff <= 7) return { kind: 'soon', label: parseDay(due).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) };
+    if (diff <= SOON_DAYS) return { kind: 'soon', label: fmtWeekday(parseDay(due)) };
     return { kind: 'later', label: fmtDay(parseDay(due)) };
   }
+  /** "Wed 18 Nov" (with the year when it is not the current one). */
+  function fmtWeekday(date) {
+    const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+    if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return date.toLocaleDateString('en-GB', opts).replace(',', '');
+  }
+  /** How a due date reads in the detail view. */
+  function fmtDue(due) {
+    const diff = Math.round((parseDay(due) - parseDay(todayStr())) / DAY_MS);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === -1) return 'Yesterday';
+    return fmtWeekday(parseDay(due));
+  }
+  const addDays = (n) => { const d = new Date(); return dateStr(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)); };
   function fmtRelative(ts) {
     const diff = Math.round((parseDay(todayStr()) - parseDay(dateStr(new Date(ts)))) / DAY_MS);
     if (diff <= 0) return 'today';
@@ -942,13 +959,23 @@
   const detail = $('#detail');
   const dTitle = $('#d-title');
   const dNotes = $('#d-notes');
-  const dDue = $('#d-due');
   const dDone = $('#d-done');
-  const dWs = $('#d-ws');
+  const dueBtn = $('#d-due-btn');
+  const wsBtn = $('#d-ws-btn');
+  const dp = $('#dp');
+  const wsMenu = $('#ws-menu');
 
   function autoGrow(el) {
     el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight + 2}px`;
+    el.style.height = `${el.scrollHeight + 2}px`; // CSS max-height caps the notes field, then it scrolls
+  }
+
+  function syncDueField() {
+    const found = ui.detailId && findTask(ui.detailId);
+    const due = found && found.task.due;
+    $('#d-due-text').textContent = due ? fmtDue(due) : 'No date';
+    dueBtn.classList.toggle('empty', !due);
+    dueBtn.classList.toggle('overdue', !!due && !found.done && due < todayStr());
   }
 
   function openDetail(id, { focusDue = false } = {}) {
@@ -959,26 +986,21 @@
     detail.dataset.q = task.quadrant;
     dTitle.value = task.title;
     dNotes.value = task.notes;
-    dDue.value = task.due || '';
     dDone.checked = done;
-    $('#d-due-clear').hidden = !task.due;
+    syncDueField();
     for (const r of $$('input[name="d-q"]', detail)) {
       r.checked = r.value === task.quadrant;
-      r.nextElementSibling.textContent = qName(ws, r.value);
+      $('.q-opt-name', r.nextElementSibling).textContent = qName(ws, r.value);
     }
-    dWs.replaceChildren(...state.workspaces.map((w) => h('option', { value: w.id, text: `${w.emoji} ${w.name}`, selected: w.id === ws.id })));
+    $('#d-ws-text').textContent = `${ws.emoji} ${ws.name}`;
     $('#d-ws-field').hidden = state.workspaces.length < 2;
     $('#d-meta').textContent = done
       ? `${task.dropped ? 'Dropped' : 'Completed'} ${fmtRelative(task.completedAt)}`
       : `Added ${fmtRelative(task.createdAt)}`;
     if (!detail.open) detail.showModal();
     autoGrow(dTitle);
-    if (focusDue) {
-      dDue.focus();
-      try { dDue.showPicker(); } catch { /* the focused field is enough */ }
-    } else {
-      (task.title ? $('.btn.primary', detail) : dTitle).focus();
-    }
+    autoGrow(dNotes);
+    if (focusDue) openDatePicker(); else $('#d-close').focus();
   }
 
   /** Apply an edit to the task currently open in the detail dialog. */
@@ -997,26 +1019,178 @@
   dTitle.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); detail.close(); }
   });
-  dNotes.addEventListener('input', () => editDetail((t) => { t.notes = dNotes.value; }));
-  dDue.addEventListener('input', () => {
-    const v = DATE_RE.test(dDue.value) ? dDue.value : null;
-    $('#d-due-clear').hidden = !v;
-    editDetail((t) => { t.due = v; });
+  dNotes.addEventListener('input', () => { autoGrow(dNotes); editDetail((t) => { t.notes = dNotes.value; }); });
+  /* Popovers ---------------------------------------------------------- *
+   * The date picker and workspace menu are [popover] elements: the browser
+   * closes them on Esc and on an outside click. They are placed beside the
+   * dialog when there is room, so they never sit on top of its controls.   */
+  let popClosedAt = 0;
+  function placePopover(pop, anchor) {
+    const a = anchor.getBoundingClientRect();
+    const d = detail.getBoundingClientRect();
+    pop.style.maxHeight = '';
+    const w = pop.offsetWidth;
+    const gap = 10;
+    const edge = 8;
+    let left;
+    let top;
+    if (d.right + gap + w <= window.innerWidth - edge) { left = d.right + gap; top = a.top - 8; }        // right of the dialog
+    else if (d.left - gap - w >= edge) { left = d.left - gap - w; top = a.top - 8; }                     // left of it
+    else if (a.top - gap - edge >= 240) {                                                                // above the field,
+      pop.style.maxHeight = `${a.top - gap - edge}px`;                                                   // scrolling inside if it is tall
+      left = a.left; top = a.top - gap - pop.offsetHeight;
+    } else { left = a.left; top = a.bottom + gap; }                                                      // last resort: below
+    pop.style.left = `${Math.max(edge, Math.min(left, window.innerWidth - w - edge))}px`;
+    pop.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - pop.offsetHeight - edge))}px`;
+  }
+  function watchPopover(pop, button) {
+    pop.addEventListener('toggle', (e) => {
+      const open = e.newState === 'open';
+      button.setAttribute('aria-expanded', String(open));
+      if (!open) popClosedAt = performance.now();
+    });
+  }
+  watchPopover(dp, dueBtn);
+  watchPopover(wsMenu, wsBtn);
+  const closePopovers = () => { for (const pop of [dp, wsMenu]) if (pop.matches(':popover-open')) pop.hidePopover(); };
+  window.addEventListener('resize', closePopovers);
+
+  /* Date picker --------------------------------------------------------- */
+  let dpMonth = null; // first day of the month on show
+
+  function currentDue() {
+    const found = ui.detailId && findTask(ui.detailId);
+    return found ? found.task.due : null;
+  }
+  function pickDue(value) {
+    editDetail((t) => { t.due = value; });
+    syncDueField();
+    dp.hidePopover();
+    dueBtn.focus();
+  }
+  function renderDatePicker(focusDate) {
+    const today = todayStr();
+    const due = currentDue();
+    const weekday = new Date().getDay(); // 0 = Sunday
+    const quick = [
+      ['Today', today], ['Tomorrow', addDays(1)],
+      ['Next Monday', addDays(((8 - weekday) % 7) || 7)], ['In a week', addDays(7)], ['No date', null],
+    ];
+    $('#dp-quick').replaceChildren(...quick.map(([label, value]) =>
+      h('button', { type: 'button', class: 'dp-opt', dataset: { value: value || '' }, 'aria-pressed': String(value === due || (!value && !due)) },
+        h('span', { text: label }),
+        value && h('span', { class: 'hint', text: fmtWeekday(parseDay(value)) }))));
+
+    const y = dpMonth.getFullYear();
+    const m = dpMonth.getMonth();
+    $('#dp-month').textContent = dpMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    const lead = (new Date(y, m, 1).getDay() + 6) % 7; // weeks start on Monday
+    const cells = [];
+    for (let i = 0; i < 42; i++) cells.push(new Date(y, m, 1 - lead + i));
+    const inView = (v) => !!v && cells.some((c) => dateStr(c) === v);
+    // exactly one day is in the tab order: the focused one, else the selected one, else today, else the 1st
+    const tabStop = focusDate || (inView(due) && parseDay(due).getMonth() === m ? due : (parseDay(today).getMonth() === m && parseDay(today).getFullYear() === y ? today : dateStr(new Date(y, m, 1))));
+    $('#dp-grid').replaceChildren(...cells.map((c) => {
+      const value = dateStr(c);
+      const cls = ['dp-day'];
+      if (c.getMonth() !== m) cls.push('out');
+      if (value === today) cls.push('today');
+      if (value === due) cls.push('selected');
+      return h('button', {
+        type: 'button', class: cls.join(' '), text: String(c.getDate()), dataset: { value },
+        tabIndex: value === tabStop ? 0 : -1, 'aria-pressed': String(value === due),
+        'aria-label': `${c.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}${value === today ? ', today' : ''}`,
+      });
+    }));
+    if (focusDate) { const el = $(`.dp-day[data-value="${focusDate}"]`, dp); if (el) el.focus(); }
+  }
+  function openDatePicker() {
+    const base = parseDay(currentDue() || todayStr());
+    dpMonth = new Date(base.getFullYear(), base.getMonth(), 1);
+    renderDatePicker();
+    dp.showPopover();
+    placePopover(dp, dueBtn);
+    $('.dp-opt', dp).focus();
+  }
+  dueBtn.addEventListener('click', () => { if (dp.matches(':popover-open')) dp.hidePopover(); else openDatePicker(); });
+  dueBtn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); openDatePicker(); } });
+  dp.addEventListener('click', (e) => {
+    const opt = e.target.closest('.dp-opt, .dp-day');
+    if (opt) pickDue(opt.dataset.value || null);
   });
-  $('#d-due-clear').addEventListener('click', () => {
-    dDue.value = '';
-    $('#d-due-clear').hidden = true;
-    editDetail((t) => { t.due = null; });
+  const shiftMonth = (step, focusDate) => { dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth() + step, 1); renderDatePicker(focusDate); };
+  $('#dp-prev').addEventListener('click', () => shiftMonth(-1));
+  $('#dp-next').addEventListener('click', () => shiftMonth(1));
+  dp.addEventListener('keydown', (e) => {
+    const day = e.target.closest('.dp-day');
+    if (day) {
+      const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+      const from = parseDay(day.dataset.value);
+      let to = null;
+      if (e.key in steps) to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + steps[e.key]);
+      else if (e.key === 'PageUp' || e.key === 'PageDown') to = new Date(from.getFullYear(), from.getMonth() + (e.key === 'PageUp' ? -1 : 1), from.getDate());
+      else if (e.key === 'Home') to = new Date(from.getFullYear(), from.getMonth(), from.getDate() - ((from.getDay() + 6) % 7));
+      else if (e.key === 'End') to = new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6 - ((from.getDay() + 6) % 7));
+      if (to) {
+        e.preventDefault();
+        dpMonth = new Date(to.getFullYear(), to.getMonth(), 1);
+        renderDatePicker(dateStr(to));
+        return;
+      }
+    }
+    if (e.key === 'Tab') { // keep Tab inside the picker
+      const stops = $$('.dp-opt, .dp-nav, .dp-day[tabindex="0"]', dp);
+      const i = stops.indexOf(document.activeElement);
+      e.preventDefault();
+      stops[(i + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
+    }
   });
+
+  /* Workspace menu ------------------------------------------------------- */
+  function openWsMenu() {
+    const found = ui.detailId && findTask(ui.detailId);
+    if (!found) return;
+    wsMenu.replaceChildren(...state.workspaces.map((w) => {
+      const tick = icon('check');
+      tick.classList.add('tick');
+      return h('button', { type: 'button', class: 'ws-opt', role: 'option', dataset: { id: w.id }, 'aria-selected': String(w.id === found.ws.id) },
+        h('span', { text: w.emoji, 'aria-hidden': 'true' }), h('span', { class: 'grow', text: w.name }), tick);
+    }));
+    wsMenu.showPopover();
+    placePopover(wsMenu, wsBtn);
+    $('.ws-opt[aria-selected="true"]', wsMenu).focus();
+  }
+  wsBtn.addEventListener('click', () => { if (wsMenu.matches(':popover-open')) wsMenu.hidePopover(); else openWsMenu(); });
+  wsBtn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openWsMenu(); } });
+  wsMenu.addEventListener('keydown', (e) => {
+    const opts = $$('.ws-opt', wsMenu);
+    const i = opts.indexOf(document.activeElement);
+    let to = null;
+    if (e.key === 'ArrowDown') to = opts[(i + 1) % opts.length];
+    else if (e.key === 'ArrowUp') to = opts[(i - 1 + opts.length) % opts.length];
+    else if (e.key === 'Home') to = opts[0];
+    else if (e.key === 'End') to = opts[opts.length - 1];
+    else if (e.key === 'Tab') { e.preventDefault(); wsMenu.hidePopover(); wsBtn.focus(); return; }
+    else if (e.key.length === 1 && /\S/.test(e.key)) { // jump to a workspace by its first letter
+      to = opts.find((o, n) => n > i && $('.grow', o).textContent.toLowerCase().startsWith(e.key.toLowerCase()))
+        || opts.find((o) => $('.grow', o).textContent.toLowerCase().startsWith(e.key.toLowerCase()));
+    }
+    if (to) { e.preventDefault(); to.focus(); }
+  });
+  wsMenu.addEventListener('click', (e) => {
+    const opt = e.target.closest('.ws-opt');
+    if (!opt) return;
+    const id = ui.detailId;
+    wsMenu.hidePopover();
+    if (opt.getAttribute('aria-selected') === 'true') { wsBtn.focus(); return; }
+    detail.close();
+    moveTaskToWorkspace(id, opt.dataset.id);
+  });
+
   detail.addEventListener('change', (e) => {
     if (e.target.name !== 'd-q') return;
     detail.dataset.q = e.target.value;
     editDetail((t) => setQuadrant(t, e.target.value));
-  });
-  dWs.addEventListener('change', () => {
-    const id = ui.detailId;
-    detail.close();
-    moveTaskToWorkspace(id, dWs.value);
   });
   dDone.addEventListener('change', () => {
     const id = ui.detailId;
@@ -1029,8 +1203,12 @@
     detail.close();
     deleteTask(id);
   });
-  detail.addEventListener('click', (e) => { if (e.target === detail) detail.close(); }); // backdrop
+  detail.addEventListener('click', (e) => {
+    // backdrop click closes the sheet, unless that same click just dismissed an open picker
+    if (e.target === detail && performance.now() - popClosedAt > 250) detail.close();
+  });
   detail.addEventListener('close', () => {
+    if (detail.open) return; // the close event arrives late; the sheet may already show another task
     const id = ui.detailId;
     ui.detailId = null;
     flush();
@@ -1345,7 +1523,7 @@
   $('#w-left').addEventListener('click', () => moveWs(-1));
   $('#w-right').addEventListener('click', () => moveWs(1));
   wsDialog.addEventListener('click', (e) => { if (e.target === wsDialog) wsDialog.close(); });
-  wsDialog.addEventListener('close', () => { ui.wsEditId = null; flush(); });
+  wsDialog.addEventListener('close', () => { if (!wsDialog.open) ui.wsEditId = null; flush(); });
 
   // Quadrant names for this workspace only. An empty field means "use the default".
   $('#w-qnames').addEventListener('input', (e) => {
