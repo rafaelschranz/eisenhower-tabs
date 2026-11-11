@@ -68,6 +68,22 @@
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  /* Motion timings come from the CSS tokens so the theme lives in one place. */
+  const rootStyle = getComputedStyle(document.documentElement);
+  const cssMs = (name, fallback) => parseFloat(rootStyle.getPropertyValue(name)) || fallback;
+  const T = { fast: cssMs('--t-fast', 120), move: cssMs('--t-move', 180), slow: cssMs('--t-slow', 240) };
+  const EASE = rootStyle.getPropertyValue('--ease').trim() || 'ease-out';
+
+  /** Stable tilt of about ±1.5° derived from the task id, so it survives re-renders. */
+  function tiltFor(id) {
+    let hash = 2166136261; // FNV-1a, then a final mix so similar ids still spread out
+    for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+    hash = Math.imul(hash ^ (hash >>> 15), 2246822507);
+    hash ^= hash >>> 13;
+    const t = (((hash >>> 0) % 1000) / 1000) * 3 - 1.5;
+    return `${(Math.abs(t) < 0.4 ? (t < 0 ? -0.4 : 0.4) : t).toFixed(2)}deg`;
+  }
+
   /* Dates ------------------------------------------------------------- */
   function dateStr(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -327,7 +343,7 @@
     summary.textContent = first === 0
       ? (ws.tasks.length ? 'Nothing to do first. Nice ✨' : 'A clean board. What matters today?')
       : `${first} ${first === 1 ? 'task' : 'tasks'} to do first today`;
-    if (overdue) summary.append(h('span', { class: 'overdue', text: ` · ${overdue} overdue` }));
+    if (overdue) summary.append(' · ', h('span', { class: 'overdue', text: `${overdue} overdue` }));
   }
 
   function renderTabs() {
@@ -352,19 +368,90 @@
 
   function noteEl(t, today) {
     const info = t.due ? dueInfo(t.due, today) : null;
+    const hasNotes = !!t.notes.trim();
     const cls = ['note'];
+    if (info || hasNotes) cls.push('has-meta');
     if (info && info.kind === 'overdue') cls.push('is-overdue');
     if (t.id === ui.justAdded) cls.push('pop');
-    return h('article', {
+    const el = h('article', {
       class: cls.join(' '), tabIndex: 0, dataset: { id: t.id },
       'aria-label': `${t.title}${info ? `, ${info.label}` : ''}. Press Enter for details.`,
     },
-      h('button', { class: 'note-check', type: 'button', title: 'Mark as done', 'aria-label': `Mark “${t.title}” as done` }, icon('check')),
-      h('div', { class: 'note-body' },
-        h('div', { class: 'note-title', text: t.title }),
-        (info || t.notes.trim()) && h('div', { class: 'note-meta' },
-          info && h('span', { class: `due due-${info.kind}`, text: info.label }),
-          t.notes.trim() && h('span', { class: 'has-notes', title: 'Has notes' }, icon('notes')))));
+      h('div', { class: 'note-title', text: t.title }),
+      (info || hasNotes) && h('div', { class: 'note-meta' },
+        info && h('span', { class: `due due-${info.kind}`, text: info.label }),
+        hasNotes && h('span', { class: 'has-notes', title: 'Has notes' }, icon('notes'))),
+      h('button', { class: 'note-check', type: 'button', title: 'Mark as done', 'aria-label': `Mark “${t.title}” as done` }, icon('check')));
+    el.style.setProperty('--tilt', tiltFor(t.id));
+    return el;
+  }
+
+  /* Layout: pick a column count per quadrant so notes are as large as the
+     space allows and only shrink (then scroll) when the quadrant fills up. */
+  const NOTE = { min: 104, comfy: 150, max: 232, ratio: 0.88, gap: 12, padX: 36, padY: 26, padInner: 26, line: 19.3, meta: 26 };
+  const stackedLayout = window.matchMedia('(max-width: 620px)');
+
+  function sizeList(list) {
+    const W = list.clientWidth - NOTE.padX;
+    if (W <= 0) return;
+    const H = stackedLayout.matches ? Infinity : list.clientHeight - NOTE.padY;
+    const n = Math.max(1, $$('.note, .composer, .note-placeholder:not(.off)', list).length);
+    const width = (cols) => (W - NOTE.gap * (cols - 1)) / cols;
+    const maxCols = Math.max(1, Math.floor((W + NOTE.gap) / (NOTE.min + NOTE.gap)));
+    const base = Math.min(maxCols, Math.max(1, Math.ceil((W + NOTE.gap) / (NOTE.max + NOTE.gap))));
+    let cols = base;
+    const fits = (c) => {
+      const rows = Math.ceil(n / c);
+      return rows * width(c) * NOTE.ratio + (rows - 1) * NOTE.gap <= H;
+    };
+    while (cols < maxCols && !fits(cols)) cols++;
+    // Too many to fit even when small: go back to a comfortable size and let the quadrant scroll.
+    if (!fits(cols)) cols = Math.max(base, Math.floor((W + NOTE.gap) / (NOTE.comfy + NOTE.gap)));
+    const inner = width(cols) * NOTE.ratio - NOTE.padInner;
+    list.style.setProperty('--cols', cols);
+    list.style.setProperty('--lines', Math.max(2, Math.floor(inner / NOTE.line)));
+    list.style.setProperty('--lines-meta', Math.max(1, Math.floor((inner - NOTE.meta) / NOTE.line)));
+  }
+  const sizeLists = () => { for (const q of QUADRANTS) sizeList(quadEls[q.id].list); };
+
+  /* FLIP: remember where notes are, change the DOM, then glide them into place. */
+  function noteCenters() {
+    const map = new Map();
+    for (const n of $$('.note', board)) {
+      const r = n.getBoundingClientRect();
+      map.set(n.dataset.id, [r.left + r.width / 2, r.top + r.height / 2]);
+    }
+    return map;
+  }
+  function glideFrom(before) {
+    if (reducedMotion()) return;
+    const notes = $$('.note', board);
+    for (const n of notes) for (const a of n.getAnimations()) if (a.constructor === Animation) a.cancel(); // script-driven glides only
+    for (const n of notes) {
+      const was = before.get(n.dataset.id);
+      if (!was || n.classList.contains('pop')) continue;
+      const r = n.getBoundingClientRect();
+      const dx = was[0] - (r.left + r.width / 2);
+      const dy = was[1] - (r.top + r.height / 2);
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      n.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: T.move, easing: EASE });
+    }
+  }
+
+  /** A fixed-position copy of a note, used for exit animations after the real one is gone. */
+  function ghostOf(note) {
+    const r = note.getBoundingClientRect();
+    const cs = getComputedStyle(note);
+    const ghost = note.cloneNode(true);
+    ghost.className = 'note ghost';
+    ghost.removeAttribute('tabindex');
+    ghost.dataset.q = note.closest('[data-q]').dataset.q;
+    for (const v of ['--lines', '--lines-meta']) ghost.style.setProperty(v, cs.getPropertyValue(v));
+    Object.assign(ghost.style, {
+      left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`,
+    });
+    document.body.append(ghost);
+    return { ghost, rect: r };
   }
 
   function composerEl(q) {
@@ -397,6 +484,7 @@
     const focused = document.activeElement && document.activeElement.closest('.note');
     const focusId = focused && !focused.classList.contains('dragging') ? focused.dataset.id : null;
 
+    const before = noteCenters();
     rendering = true;
     for (const q of QUADRANTS) {
       const { list, count } = quadEls[q.id];
@@ -408,6 +496,8 @@
       list.replaceChildren(...nodes);
     }
     rendering = false;
+    sizeLists();
+    glideFrom(before);
 
     if (ui.composer) {
       const input = $('.composer-input', quadEls[ui.composer].el);
@@ -486,6 +576,7 @@
   function deleteTask(id) {
     const found = findTask(id);
     if (!found) return;
+    if (!found.done && found.ws.id === state.activeId) fadeOut(noteById(id));
     snapshot();
     const arr = found.done ? found.ws.done : found.ws.tasks;
     arr.splice(arr.indexOf(found.task), 1);
@@ -521,35 +612,39 @@
     toast('Done pile cleared', { undoable: true });
   }
 
-  /* Completion animation: the note flies into the Done button. */
+  /* Completion: the note flies into the Done button and the counter bumps. */
   const doneToggle = $('#done-toggle');
+  const doneCount = $('#done-count');
   function bumpDone() {
-    doneToggle.classList.remove('bump');
-    void doneToggle.offsetWidth;
-    doneToggle.classList.add('bump');
+    doneCount.classList.remove('bump');
+    void doneCount.offsetWidth;
+    doneCount.classList.add('bump');
   }
   function flyToDone(note) {
     if (!note || reducedMotion()) { bumpDone(); return; }
-    const from = note.getBoundingClientRect();
-    const to = doneToggle.getBoundingClientRect();
-    const fly = note.cloneNode(true);
-    fly.className = 'note flyer';
-    fly.removeAttribute('tabindex');
-    fly.dataset.q = note.closest('.quadrant').dataset.q;
-    Object.assign(fly.style, {
-      left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px`,
-    });
-    document.body.append(fly);
+    const { ghost, rect: from } = ghostOf(note);
+    ghost.classList.add('checked');
+    const to = doneCount.getBoundingClientRect();
     const dx = to.left + to.width / 2 - (from.left + from.width / 2);
     const dy = to.top + to.height / 2 - (from.top + from.height / 2);
-    const anim = fly.animate([
-      { transform: 'translate(0, 0) scale(1) rotate(0deg)', opacity: 1 },
-      { transform: 'translate(0, -8px) scale(1.1) rotate(-4deg)', opacity: 1, offset: 0.3 },
-      { transform: `translate(${dx}px, ${dy}px) scale(0.1) rotate(16deg)`, opacity: 0.2 },
-    ], { duration: 640, easing: 'cubic-bezier(0.5, 0, 0.2, 1)' });
-    const finish = () => { fly.remove(); bumpDone(); };
+    const anim = ghost.animate([
+      { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+      { transform: `translate(${dx * 0.08}px, ${dy * 0.08 - 6}px) scale(1.08)`, opacity: 1, offset: 0.25 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.08)`, opacity: 0.3 },
+    ], { duration: T.slow, easing: 'cubic-bezier(0.5, 0, 0.6, 1)' });
+    const finish = () => { ghost.remove(); bumpDone(); };
     anim.onfinish = finish;
     anim.oncancel = finish;
+  }
+  /* Delete: quick fade and shrink. */
+  function fadeOut(note) {
+    if (!note || reducedMotion()) return;
+    const { ghost } = ghostOf(note);
+    const anim = ghost.animate([
+      { transform: 'scale(1)', opacity: 1 },
+      { transform: 'scale(0.82)', opacity: 0 },
+    ], { duration: T.move, easing: EASE });
+    anim.onfinish = anim.oncancel = () => ghost.remove();
   }
 
   /* ------------------------------------------------------------------ *
@@ -586,12 +681,16 @@
     let { note } = drag;
     if (!note.isConnected) note = drag.note = noteById(drag.id); // board re-rendered since pointerdown
     if (!note) { cancelDrag(); return false; }
-    const r = note.getBoundingClientRect();
+    for (const a of note.getAnimations()) a.cancel();
+    const list = note.parentElement;
+    const left = list.getBoundingClientRect().left + note.offsetLeft - list.scrollLeft;
+    const top = list.getBoundingClientRect().top + note.offsetTop - list.scrollTop;
+    const cs = getComputedStyle(note);
+    for (const v of ['--lines', '--lines-meta']) note.style.setProperty(v, cs.getPropertyValue(v));
     drag.placeholder = h('div', { class: 'note-placeholder' });
-    drag.placeholder.style.height = `${r.height}px`;
     note.before(drag.placeholder);
     note.dataset.q = note.closest('.quadrant').dataset.q; // keep its colour once it leaves the quadrant
-    Object.assign(note.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    Object.assign(note.style, { left: `${left}px`, top: `${top}px`, width: `${note.offsetWidth}px`, height: `${note.offsetHeight}px` });
     note.classList.add('dragging');
     document.body.append(note);
     document.body.classList.add('is-dragging');
@@ -601,10 +700,12 @@
 
   /** Which note should the placeholder be inserted before? (null = end) */
   function insertionPoint(list, x, y) {
+    const lr = list.getBoundingClientRect();
     for (const n of $$('.note', list)) {
-      const r = n.getBoundingClientRect();
-      if (y < r.top - 5) return n;
-      if (y <= r.bottom + 5 && x < r.left + r.width / 2) return n;
+      const left = lr.left + n.offsetLeft - list.scrollLeft;
+      const top = lr.top + n.offsetTop - list.scrollTop;
+      if (y < top - 7) return n;
+      if (y <= top + n.offsetHeight + 7 && x < left + n.offsetWidth / 2) return n;
     }
     return null;
   }
@@ -616,7 +717,7 @@
     if (!drag.active) {
       if (Math.hypot(dx, dy) < 6 || !startDrag()) return;
     }
-    drag.note.style.transform = `translate(${dx}px, ${dy}px) rotate(2.5deg) scale(1.05)`;
+    drag.note.style.transform = `translate(${dx}px, ${dy}px)`;
 
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const tab = under && under.closest('.ws-tab');
@@ -643,7 +744,9 @@
 
     const before = insertionPoint(list, e.clientX, e.clientY) || $('.empty', list);
     if (drag.placeholder.parentNode !== list || drag.placeholder.nextElementSibling !== before) {
+      const was = noteCenters();
       list.insertBefore(drag.placeholder, before);
+      glideFrom(was); // neighbours move aside smoothly
     }
   }
 
@@ -695,11 +798,14 @@
     // Settle the note into its new slot.
     const el = noteById(d.id);
     if (el && !reducedMotion()) {
+      for (const a of el.getAnimations()) a.cancel();
       const to = el.getBoundingClientRect();
+      const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+      const dy = from.top + from.height / 2 - (to.top + to.height / 2);
       el.animate([
-        { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) rotate(2.5deg) scale(1.05)` },
-        { transform: 'none' },
-      ], { duration: 200, easing: 'cubic-bezier(0.3, 1.2, 0.5, 1)' });
+        { transform: `translate(${dx}px, ${dy}px)`, rotate: '2.5deg', scale: '1.03' },
+        { transform: 'none', rotate: el.style.getPropertyValue('--tilt'), scale: '1' },
+      ], { duration: T.move, easing: EASE });
     }
   }
 
@@ -715,9 +821,22 @@
     quickInput.value = '';
   });
   $('#quick-add').addEventListener('change', (e) => {
-    if (e.target.name !== 'quick-q') return;
-    $('#q-pick-label').textContent = Q_TITLE[e.target.value];
-    quickInput.focus();
+    if (e.target.name === 'quick-q') quickInput.focus();
+  });
+  function setQuickQuadrant(id) {
+    $(`input[name="quick-q"][value="${id}"]`).checked = true;
+  }
+  // While typing: Tab / Shift+Tab cycles the target quadrant, Alt+1–4 picks one directly.
+  quickInput.addEventListener('keydown', (e) => {
+    const digit = /^Digit([1-4])$/.exec(e.code);
+    if (e.altKey && !e.ctrlKey && !e.metaKey && digit) {
+      e.preventDefault();
+      setQuickQuadrant(Q_IDS[Number(digit[1]) - 1]);
+    } else if (e.key === 'Tab' && !e.altKey && !e.ctrlKey && !e.metaKey && quickInput.value.trim()) {
+      e.preventDefault();
+      const i = Q_IDS.indexOf($('input[name="quick-q"]:checked').value);
+      setQuickQuadrant(Q_IDS[(i + (e.shiftKey ? -1 : 1) + Q_IDS.length) % Q_IDS.length]);
+    }
   });
 
   /* ------------------------------------------------------------------ *
@@ -1158,6 +1277,7 @@
   });
   setInterval(refreshDay, 60000);
   window.addEventListener('pagehide', flush);
+  new ResizeObserver(() => { if (state && !drag) sizeLists(); }).observe(board);
 
   /* ------------------------------------------------------------------ *
    * Boot
