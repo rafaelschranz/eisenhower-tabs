@@ -74,14 +74,14 @@
   const T = { fast: cssMs('--t-fast', 120), move: cssMs('--t-move', 180), slow: cssMs('--t-slow', 240) };
   const EASE = rootStyle.getPropertyValue('--ease').trim() || 'ease-out';
 
-  /** Stable tilt of about ±1.5° derived from the task id, so it survives re-renders. */
+  /** Stable tilt of about ±1° derived from the task id, so it survives re-renders. */
   function tiltFor(id) {
     let hash = 2166136261; // FNV-1a, then a final mix so similar ids still spread out
     for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
     hash = Math.imul(hash ^ (hash >>> 15), 2246822507);
     hash ^= hash >>> 13;
-    const t = (((hash >>> 0) % 1000) / 1000) * 3 - 1.5;
-    return `${(Math.abs(t) < 0.4 ? (t < 0 ? -0.4 : 0.4) : t).toFixed(2)}deg`;
+    const t = (((hash >>> 0) % 1000) / 1000) * 2 - 1;
+    return `${(Math.abs(t) < 0.3 ? (t < 0 ? -0.3 : 0.3) : t).toFixed(2)}deg`;
   }
 
   /* Dates ------------------------------------------------------------- */
@@ -103,6 +103,7 @@
     if (diff < 0) return { kind: 'overdue', label: `Overdue · ${fmtDay(parseDay(due))}` };
     if (diff === 0) return { kind: 'today', label: 'Today' };
     if (diff === 1) return { kind: 'soon', label: 'Tomorrow' };
+    if (diff <= 7) return { kind: 'soon', label: parseDay(due).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) };
     return { kind: 'later', label: fmtDay(parseDay(due)) };
   }
   function fmtRelative(ts) {
@@ -386,33 +387,31 @@
     return el;
   }
 
-  /* Layout: pick a column count per quadrant so notes are as large as the
-     space allows and only shrink (then scroll) when the quadrant fills up. */
-  const NOTE = { min: 104, comfy: 150, max: 232, ratio: 0.88, gap: 12, padX: 36, padY: 26, padInner: 26, line: 19.3, meta: 26 };
-  const stackedLayout = window.matchMedia('(max-width: 620px)');
+  /* Density: notes have one fixed size per density level. Each quadrant starts
+     at its own level and steps down only if its notes would not fit; if they
+     still do not fit at the smallest level, the quadrant scrolls. */
+  const DENSITIES = ['normal', 'small', 'compact'];
+  const BASE_DENSITY = { do: 'normal', schedule: 'normal', delegate: 'small', eliminate: 'compact' };
+  const NOTE_VARS = ['--n-w', '--n-min-h', '--n-fs', '--n-pad', '--n-badge'];
 
-  function sizeList(list) {
-    const W = list.clientWidth - NOTE.padX;
-    if (W <= 0) return;
-    const H = stackedLayout.matches ? Infinity : list.clientHeight - NOTE.padY;
-    const n = Math.max(1, $$('.note, .composer, .note-placeholder:not(.off)', list).length);
-    const width = (cols) => (W - NOTE.gap * (cols - 1)) / cols;
-    const maxCols = Math.max(1, Math.floor((W + NOTE.gap) / (NOTE.min + NOTE.gap)));
-    const base = Math.min(maxCols, Math.max(1, Math.ceil((W + NOTE.gap) / (NOTE.max + NOTE.gap))));
-    let cols = base;
-    const fits = (c) => {
-      const rows = Math.ceil(n / c);
-      return rows * width(c) * NOTE.ratio + (rows - 1) * NOTE.gap <= H;
-    };
-    while (cols < maxCols && !fits(cols)) cols++;
-    // Too many to fit even when small: go back to a comfortable size and let the quadrant scroll.
-    if (!fits(cols)) cols = Math.max(base, Math.floor((W + NOTE.gap) / (NOTE.comfy + NOTE.gap)));
-    const inner = width(cols) * NOTE.ratio - NOTE.padInner;
-    list.style.setProperty('--cols', cols);
-    list.style.setProperty('--lines', Math.max(2, Math.floor(inner / NOTE.line)));
-    list.style.setProperty('--lines-meta', Math.max(1, Math.floor((inner - NOTE.meta) / NOTE.line)));
+  const overflows = (list) => list.scrollHeight > list.clientHeight + 1;
+  function updateFade(list) {
+    list.parentElement.classList.toggle('more', list.scrollHeight - list.scrollTop - list.clientHeight > 1);
   }
-  const sizeLists = () => { for (const q of QUADRANTS) sizeList(quadEls[q.id].list); };
+  function fitList(q) {
+    const { list } = quadEls[q];
+    const scroll = list.scrollTop;
+    let i = DENSITIES.indexOf(BASE_DENSITY[q]);
+    list.dataset.density = DENSITIES[i];
+    while (i < DENSITIES.length - 1 && overflows(list)) list.dataset.density = DENSITIES[++i];
+    list.scrollTop = scroll;
+    updateFade(list);
+  }
+  const sizeLists = () => { for (const q of QUADRANTS) fitList(q.id); };
+  for (const q of QUADRANTS) {
+    const { list } = quadEls[q.id];
+    list.addEventListener('scroll', () => updateFade(list), { passive: true });
+  }
 
   /* FLIP: remember where notes are, change the DOM, then glide them into place. */
   function noteCenters() {
@@ -446,7 +445,7 @@
     ghost.className = 'note ghost';
     ghost.removeAttribute('tabindex');
     ghost.dataset.q = note.closest('[data-q]').dataset.q;
-    for (const v of ['--lines', '--lines-meta']) ghost.style.setProperty(v, cs.getPropertyValue(v));
+    for (const v of NOTE_VARS) ghost.style.setProperty(v, cs.getPropertyValue(v));
     Object.assign(ghost.style, {
       left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`,
     });
@@ -686,8 +685,9 @@
     const left = list.getBoundingClientRect().left + note.offsetLeft - list.scrollLeft;
     const top = list.getBoundingClientRect().top + note.offsetTop - list.scrollTop;
     const cs = getComputedStyle(note);
-    for (const v of ['--lines', '--lines-meta']) note.style.setProperty(v, cs.getPropertyValue(v));
+    for (const v of NOTE_VARS) note.style.setProperty(v, cs.getPropertyValue(v));
     drag.placeholder = h('div', { class: 'note-placeholder' });
+    drag.placeholder.style.height = `${note.offsetHeight}px`;
     note.before(drag.placeholder);
     note.dataset.q = note.closest('.quadrant').dataset.q; // keep its colour once it leaves the quadrant
     Object.assign(note.style, { left: `${left}px`, top: `${top}px`, width: `${note.offsetWidth}px`, height: `${note.offsetHeight}px` });
@@ -695,6 +695,7 @@
     document.body.append(note);
     document.body.classList.add('is-dragging');
     drag.active = true;
+    drag.raf = requestAnimationFrame(autoScrollTick);
     return true;
   }
 
@@ -712,20 +713,26 @@
 
   function onDragMove(e) {
     if (!drag) return;
-    const dx = e.clientX - drag.x0;
-    const dy = e.clientY - drag.y0;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
     if (!drag.active) {
-      if (Math.hypot(dx, dy) < 6 || !startDrag()) return;
+      if (Math.hypot(drag.x - drag.x0, drag.y - drag.y0) < 6 || !startDrag()) return;
     }
-    drag.note.style.transform = `translate(${dx}px, ${dy}px)`;
+    drag.note.style.transform = `translate(${drag.x - drag.x0}px, ${drag.y - drag.y0}px)`;
+    updateDropTarget();
+  }
 
-    const under = document.elementFromPoint(e.clientX, e.clientY);
+  /** Work out what is under the pointer and move the placeholder there. */
+  function updateDropTarget() {
+    const { x, y } = drag;
+    const under = document.elementFromPoint(x, y);
     const tab = under && under.closest('.ws-tab');
     const quad = under && under.closest('.quadrant');
 
     for (const el of $$('.ws-tab.drop')) el.classList.remove('drop');
     for (const el of $$('.quadrant.drop-target')) el.classList.remove('drop-target');
     drag.tabId = null;
+    drag.overList = null;
 
     if (tab && tab.dataset.id !== state.activeId) {
       tab.classList.add('drop');
@@ -737,17 +744,35 @@
     if (!quad) return;
 
     quad.classList.add('drop-target');
-    const list = $('.note-list', quad);
-    const lr = list.getBoundingClientRect();
-    if (e.clientY < lr.top + 30) list.scrollTop -= 14;
-    else if (e.clientY > lr.bottom - 30) list.scrollTop += 14;
-
-    const before = insertionPoint(list, e.clientX, e.clientY) || $('.empty', list);
+    const list = drag.overList = $('.note-list', quad);
+    const before = insertionPoint(list, x, y) || $('.empty', list);
     if (drag.placeholder.parentNode !== list || drag.placeholder.nextElementSibling !== before) {
       const was = noteCenters();
+      const from = drag.placeholder.parentNode;
       list.insertBefore(drag.placeholder, before);
       glideFrom(was); // neighbours move aside smoothly
+      updateFade(list);
+      if (from !== list) updateFade(from);
     }
+  }
+
+  /** While dragging, keep scrolling a quadrant when the pointer rests near its top or bottom edge. */
+  const EDGE = 48;
+  function autoScrollTick() {
+    if (!drag || !drag.active) return;
+    const list = drag.overList;
+    if (list) {
+      const r = list.getBoundingClientRect();
+      let speed = 0;
+      if (drag.y < r.top + EDGE) speed = -Math.min(1, (r.top + EDGE - drag.y) / EDGE);
+      else if (drag.y > r.bottom - EDGE) speed = Math.min(1, (drag.y - (r.bottom - EDGE)) / EDGE);
+      if (speed) {
+        const was = list.scrollTop;
+        list.scrollTop += speed * 16;
+        if (list.scrollTop !== was) updateDropTarget();
+      }
+    }
+    drag.raf = requestAnimationFrame(autoScrollTick);
   }
 
   function endDragListeners() {
